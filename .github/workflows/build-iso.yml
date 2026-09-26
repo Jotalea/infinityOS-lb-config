@@ -63,10 +63,30 @@ jobs:
           sha256sum "${{ steps.find_iso.outputs.iso_name }}" > "${{ steps.find_iso.outputs.iso_name }}.sha256"
           echo "checksum_path=$(pwd)/${{ steps.find_iso.outputs.iso_name }}.sha256" >> "$GITHUB_OUTPUT"
 
-      - name: Create GitHub Release with ISO and checksum
+      - name: Upload ISO to Cloudflare R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+        run: |
+          ENDPOINT="${{ secrets.R2_ENDPOINT }}"
+          STAGING_KEY="iso/infinityOS-amd64.iso.uploading"
+          FINAL_KEY="iso/infinityOS-amd64.iso"
+
+          # Upload to a staging key, then do a server-side copy onto the live
+          # key, so files.jotalea.com.ar/iso/infinityOS-amd64.iso is only ever
+          # repointed once the full ISO has landed successfully in R2.
+          aws s3 cp "${{ steps.find_iso.outputs.iso_path }}" "s3://files/${STAGING_KEY}" --endpoint-url "$ENDPOINT"
+          aws s3 cp "s3://files/${STAGING_KEY}" "s3://files/${FINAL_KEY}" --endpoint-url "$ENDPOINT"
+          aws s3 rm "s3://files/${STAGING_KEY}" --endpoint-url "$ENDPOINT"
+
+          aws s3 cp "${{ steps.checksum.outputs.checksum_path }}" "s3://files/iso/infinityOS-amd64.iso.sha256" --endpoint-url "$ENDPOINT"
+
+      - name: Create GitHub Release with checksum
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            ${{ steps.find_iso.outputs.iso_path }}
             ${{ steps.checksum.outputs.checksum_path }}
           generate_release_notes: true
+          body: |
+            ISO download: https://files.jotalea.com.ar/iso/infinityOS-amd64.iso
