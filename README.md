@@ -1,2 +1,2 @@
-# originUi-lb-config
-Live-build configuration for the originUi project.
+# ester platforms-lb-config
+Live-build configuration for the ester project.
