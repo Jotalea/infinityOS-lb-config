@@ -31,25 +31,206 @@
   spacing-columns: 10px;
 }
 
+.quick-settings .originuicc-edit-button {
+  min-width: 78px;
+  min-height: 29px;
+  padding: 6px 18px;
+  margin-top: 18px;
+  border-radius: 999px;
+  background-color: rgba(255, 255, 255, 0.16);
+  color: white;
+}
+.quick-settings .originuicc-editor-toolbar {
+  margin-top: 8px;
+  spacing: 8px;
+}
+.quick-settings .originuicc-editor-actions {
+  spacing: 8px;
+  x-align: center;
+}
+.quick-settings .originuicc-add-control-button,
+.quick-settings .originuicc-reset-button {
+  min-height: 38px;
+  padding: 6px 14px;
+  border-radius: 18px;
+  background-color: transparent;
+  border: none;
+  color: white;
+}
+.quick-settings .originuicc-add-control-button:hover,
+.quick-settings .originuicc-reset-button:hover,
+.quick-settings .originuicc-add-control-button:active,
+.quick-settings .originuicc-reset-button:active {
+  background-color: transparent !important;
+}
+.quick-settings .originuicc-toolbar-button-content { spacing: 7px; }
+.quick-settings .originuicc-add-control-icon { icon-size: 16px; }
+.quick-settings .originuicc-done-button {
+  min-height: 44px;
+  margin-top: 2px;
+  border-radius: 24px;
+  background-color: rgba(10,132,255,0.72);
+  color: white;
+}
+.quick-settings .originuicc-remove-control {
+  width: 24px;
+  height: 24px;
+  padding: 3px;
+  border-radius: 12px;
+  background-color: rgba(255,59,48,0.88);
+  border: none;
+  box-shadow: none !important;
+}
+.quick-settings .originuicc-remove-control StIcon { icon-size: 16px; color: white; }
+
+.originuicc-control-gallery {
+  spacing: 12px;
+  padding: 20px;
+  border-radius: 30px;
+  background-color: rgba(30, 30, 34, 0.96);
+  color: white;
+  box-shadow: none !important;
+}
+.originuicc-gallery-header { spacing: 8px; }
+.originuicc-gallery-title,
+.originuicc-gallery-description { font-weight: 700; }
+.originuicc-gallery-close { padding: 6px; border-radius: 16px; background-color: transparent; }
+.originuicc-gallery-scroll { min-height: 0; }
+.originuicc-gallery-list { spacing: 12px; padding: 4px; }
+.originuicc-gallery-row { spacing: 12px; }
+.originuicc-gallery-tile {
+  min-width: 220px;
+  min-height: 88px;
+  spacing: 5px;
+  padding: 8px;
+  border-radius: 16px;
+  background-color: rgba(255,255,255,0.12);
+}
+.originuicc-gallery-add { min-width: 34px; min-height: 34px; border-radius: 17px; background-color: rgba(255,255,255,0.12); color: white; }
+.originuicc-editor-confirm { spacing: 8px; padding: 8px; border-radius: 16px; background-color: rgba(0,0,0,0.22); }
+.originuicc-confirm-save,
+.originuicc-confirm-discard { min-height: 34px; padding: 4px 12px; border-radius: 16px; background-color: rgba(255,255,255,0.14); color: white; }
+.originuicc-resize-grip {
+  width: 28px;
+  height: 28px;
+  icon-size: 28px;
+  padding: 0;
+  background-color: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+.quick-settings .originuicc-editing .quick-toggle,
+.quick-settings .originuicc-editing .quick-menu-toggle,
+.quick-settings .originuicc-editing .quick-toggle-has-menu {
+  background-color: rgba(255,255,255,0.4) !important;
+  outline: none !important;
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: 28px !important;
+}
+
+/* Keep the QS controls clean: no decorative strokes or drop shadows. */
+.quick-settings,
+.quick-settings * {
+  box-shadow: none !important;
+}
+.quick-settings .quick-toggle,
+.quick-settings .quick-menu-toggle,
+.quick-settings .quick-toggle-has-menu,
+.quick-settings .quick-slider,
+.quick-settings .quick-slider .icon-button {
+  border: none !important;
+}
+.quick-settings .quick-toggle,
+.quick-settings .quick-menu-toggle,
+.quick-settings .quick-toggle-has-menu { border-radius: 24px !important; }
+
+/* Tiles use only 1x1, 2x1, or 2x2 cells in the 4-column editor grid. */
+.quick-settings .originuicc-size-1x1,
+.quick-settings .originuicc-size-1x1 .quick-toggle,
+.quick-settings .originuicc-size-1x1 .quick-menu-toggle {
+  width: 58px !important;
+  min-width: 58px !important;
+  max-width: 58px !important;
+  height: 58px !important;
+  min-height: 58px !important;
+  max-height: 58px !important;
+  border-radius: 50% !important;
+}
+.quick-settings .originuicc-size-2x1,
+.quick-settings .originuicc-size-2x1 .quick-toggle,
+.quick-settings .originuicc-size-2x1 .quick-menu-toggle {
+  min-height: 58px !important;
+  border-radius: 24px !important;
+}
+.quick-settings .originuicc-size-2x2,
+.quick-settings .originuicc-size-2x2 .quick-toggle,
+.quick-settings .originuicc-size-2x2 .quick-menu-toggle {
+  min-height: 116px !important;
+  border-radius: 22px !important;
+}
+.quick-settings .originuicc-size-2x2 StLabel { text-align: right; }
+.quick-settings .originuicc-size-1x1 .quick-toggle-arrow-button,
+.quick-settings .originuicc-size-1x1 .quick-toggle-menu-button {
+  width: 0 !important;
+  min-width: 0 !important;
+  padding: 0 !important;
+}
+.quick-settings .originuicc-editing .originuicc-size-1x1 { border-radius: 50% !important; }
+
+.originuicc-limit-dialog {
+  spacing: 14px;
+  padding: 22px;
+  border-radius: 24px;
+  background-color: rgba(32, 32, 36, 0.97);
+  color: white;
+  box-shadow: none !important;
+}
+.originuicc-limit-title { font-size: 1.15em; font-weight: 700; }
+.originuicc-limit-message { color: rgba(255,255,255,0.82); }
+.originuicc-limit-okay {
+  min-height: 40px;
+  padding: 4px 18px;
+  border-radius: 20px;
+  background-color: rgba(10,132,255,0.78);
+  color: white;
+}
+
+.quick-settings .originuicc-whats-new { spacing: 16px; }
+.quick-settings .originuicc-whats-new-list { spacing: 12px; padding: 4px; }
+.quick-settings .originuicc-whats-new-item {
+  min-height: 76px;
+  padding: 16px;
+  border-radius: 18px;
+  background-color: rgba(255,255,255,0.12);
+}
+.quick-settings .originuicc-whats-new-copy { font-size: 1.05em; font-weight: 600; }
+.quick-settings .originuicc-whats-new-done {
+  min-height: 42px;
+  border-radius: 22px;
+  background-color: rgba(10,132,255,0.72);
+  color: white;
+}
+
 /* Liquid glass tiles: normal toggles and split menu toggles. */
 .quick-settings .quick-toggle,
 .quick-settings .quick-menu-toggle {
   min-height: 58px !important;
   background: rgba(255, 255, 255, 0.55) !important;
   backdrop-filter: blur(26px) brightness(1) !important;
-  box-shadow: rgba(0, 0, 0, 0.4) 0px 0px 21px 15px;
+  box-shadow: none !important;
   border: none !important;
-  border-top: 1px solid rgba(255, 255, 255, 0.7) !important;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.7) !important;
   color: white !important;
-  transition: background-color 200ms ease;
+  transition: background-color 200ms ease, backdrop-filter 200ms ease, box-shadow 200ms ease, border-color 200ms ease;
 }
 
-/* Hover states stay glassy instead of switching to GNOME defaults. */
+/* Hard-light style hover: brighten and punch up the glass behind each tile. */
 .quick-settings .quick-toggle:hover,
 .quick-settings .quick-menu-toggle:hover,
 .quick-settings .quick-toggle-has-menu:hover {
-  background: rgba(255, 255, 255, 0.4) !important;
+  background: rgba(255, 255, 255, 0.68) !important;
+  backdrop-filter: blur(26px) brightness(1.45) contrast(1.25) saturate(1.3) !important;
+  box-shadow: none !important;
 }
 
 /* Accent color for enabled tiles. */
@@ -66,7 +247,7 @@
 .quick-settings .quick-toggle-arrow-button {
   background: transparent !important;
   border: none !important;
-  box-shadow: rgba(0, 0, 0, 0.4) 0px 0px 21px 15px;
+  box-shadow: none !important;
   min-width: 28px !important;
   padding-right: 12px !important;
 }
@@ -81,7 +262,7 @@
 .quick-settings .quick-toggle-arrow {
   icon-size: 14px;
   color: rgba(255, 255, 255, 0.8) !important;
-  box-shadow: rgba(0, 0, 0, 0.4) 0px 0px 21px 15px;
+  box-shadow: none !important;
 }
 
 /* Tile icons and labels. */
@@ -90,6 +271,8 @@
   icon-size: 18px;
   color: white !important;
   border-radius: 999px !important;
+  box-shadow: none !important;
+  border: none !important;
 }
 
 .quick-settings .quick-toggle StLabel,
@@ -105,20 +288,26 @@
   backdrop-filter: blur(26px) brightness(1) !important;
   border-radius: 24px !important;
   border: none !important;
-  border-top: 1px solid rgba(255, 255, 255, 0.7) !important;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.7) !important;
-  box-shadow: rgba(0, 0, 0, 0.4) 0px 0px 21px 15px;
+  box-shadow: none !important;
 }
 
 /* Liquid glass slider cards. */
+.quick-settings .quick-slider.originuicc-slider-size-1x2,
+.quick-settings .quick-slider.originuicc-slider-size-1x4 {
+  height: 58px !important;
+  min-height: 58px !important;
+  margin: 0;
+}
+.quick-settings .quick-slider.originuicc-slider-size-1x2 { margin-right: 6px; }
+
 .quick-settings .quick-slider {
   border-radius: 24px !important;
-  border-top: 1px solid rgba(255, 255, 255, 0.7) !important;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.7) !important;
-  padding: 10px 14px !important;
+  height: 58px !important;
+  min-height: 58px !important;
+  padding: 0 14px !important;
   background: rgba(255, 255, 255, 0.55) !important;
   backdrop-filter: blur(26px) brightness(1) !important;
-  box-shadow: rgba(0, 0, 0, 0.4) 0px 0px 21px 15px;
+  box-shadow: none !important;
 }
 
 /* Slider internals are not separate glass surfaces. */
@@ -137,9 +326,8 @@
 .quick-settings .icon-button {
   background: rgba(255, 255, 255, 0.55) !important;
   backdrop-filter: blur(26px) brightness(1) !important;
-  box-shadow: rgba(0, 0, 0, 0.4) 0px 0px 21px 15px;
-  border-top: 1px solid rgba(255, 255, 255, 0.7) !important;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.7) !important;
+  box-shadow: none !important;
+  border: none !important;
 }
 
 /* Remove the default split look from QS menu toggles. */
@@ -166,6 +354,14 @@
   color: black !important;
 }
 
+.quick-settings.originuicc-light .quick-toggle:hover,
+.quick-settings.originuicc-light .quick-menu-toggle:hover,
+.quick-settings.originuicc-light .quick-toggle-has-menu:hover {
+  background: rgba(255, 255, 255, 0.76) !important;
+  backdrop-filter: blur(26px) brightness(1.4) contrast(1.3) saturate(1.25) !important;
+  box-shadow: none !important;
+}
+
 .quick-settings.originuicc-light .quick-toggle StIcon,
 .quick-settings.originuicc-light .quick-menu-toggle StIcon,
 .quick-settings.originuicc-light .quick-toggle StLabel,
@@ -189,6 +385,14 @@
 .quick-toggle-menu-container .quick-toggle-menu.originuicc-dark {
   background: rgba(0, 0, 0, 0.4) !important;
   color: white !important;
+}
+
+.quick-settings.originuicc-dark .quick-toggle:hover,
+.quick-settings.originuicc-dark .quick-menu-toggle:hover,
+.quick-settings.originuicc-dark .quick-toggle-has-menu:hover {
+  background: rgba(255, 255, 255, 0.52) !important;
+  backdrop-filter: blur(26px) brightness(1.5) contrast(1.35) saturate(1.3) !important;
+  box-shadow: none !important;
 }
 
 /* Checked QS tiles use the accent background. Split toggles need the inner
@@ -258,4 +462,15 @@
   border-top: 1px solid rgba(255, 255, 255, 0.7) !important;
   border-bottom: 1px solid rgba(255, 255, 255, 0.7) !important;
   box-shadow: none !important;
+}
+
+/* Keep system action icons clean in either theme and on hover. */
+.quick-settings .icon-button,
+.quick-settings .icon-button:hover,
+.quick-settings.originuicc-light .icon-button,
+.quick-settings.originuicc-light .icon-button:hover,
+.quick-settings.originuicc-dark .icon-button,
+.quick-settings.originuicc-dark .icon-button:hover {
+  box-shadow: none !important;
+  border: none !important;
 }
