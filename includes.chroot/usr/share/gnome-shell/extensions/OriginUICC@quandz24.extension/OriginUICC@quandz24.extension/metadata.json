@@ -1,0 +1,8 @@
+{
+  "uuid": "OriginUICC@quandz24.extension",
+  "name": "OriginUI quick settings | animated quick settings",
+  "description": "System extension",
+  "shell-version": ["50", "48"],
+  "version": 2,
+  "stylesheet": "stylesheet.css"
+}

@@ -1,0 +1,625 @@
+/*
+ * OriginUICC Quick Settings styles.
+ *
+ * Scope rule:
+ * - Main Quick Settings selectors must start with `.quick-settings`.
+ * - Arrow submenu selectors must start with `.quick-toggle-menu-container`.
+ * - Do not style generic classes such as `.icon-button`, `.slider`, or
+ *   `.separator` without a Quick Settings parent; GNOME reuses those classes
+ *   in overview dialogs and other shell surfaces.
+ * - `backdrop-filter: blur(...)` only works after installing the patched GNOME Shell.
+ */
+
+/* Quick Settings panel surface. */
+.quick-settings {
+  padding: 12px !important;
+  border-radius: 30px !important;
+  background: rgba(255, 255, 255, 0) !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* Only used when JS makes BoxPointer transparent for QS backdrop work. */
+.popup-menu-boxpointer.originuicc-transparent-boxpointer {
+  -arrow-background-color: rgba(0, 0, 0, 0) !important;
+  -arrow-border-width: 0px !important;
+}
+
+/* Grid spacing between QS rows and columns. */
+.quick-settings .quick-settings-grid {
+  spacing-rows: 10px;
+  spacing-columns: 10px;
+}
+
+.quick-settings .originuicc-edit-button {
+  min-width: 78px;
+  min-height: 36px;
+  padding: 6px 18px;
+  margin-top: 18px;
+  border-radius: 18px;
+  background-color: rgba(255, 255, 255, 0.16);
+  color: white;
+}
+.quick-settings .originuicc-editor-toolbar {
+  margin-top: 8px;
+  spacing: 8px;
+}
+.quick-settings .originuicc-editor-actions {
+  spacing: 8px;
+  x-align: center;
+}
+.quick-settings .originuicc-add-control-button,
+.quick-settings .originuicc-reset-button {
+  min-height: 38px;
+  padding: 6px 14px;
+  border-radius: 18px;
+  background-color: transparent;
+  border: none;
+  color: white;
+}
+.quick-settings .originuicc-add-control-button:hover,
+.quick-settings .originuicc-reset-button:hover,
+.quick-settings .originuicc-add-control-button:active,
+.quick-settings .originuicc-reset-button:active {
+  background-color: transparent !important;
+}
+.quick-settings .originuicc-toolbar-button-content { spacing: 7px; }
+.quick-settings .originuicc-add-control-icon { icon-size: 16px; }
+.quick-settings .originuicc-done-button {
+  min-height: 44px;
+  margin-top: 2px;
+  border-radius: 24px;
+  background-color: rgba(10,132,255,0.72);
+  color: white;
+}
+.quick-settings .originuicc-remove-control {
+  width: 24px;
+  height: 24px;
+  padding: 3px;
+  border-radius: 12px;
+  background-color: rgba(255,59,48,0.88);
+  border: none;
+  box-shadow: none !important;
+}
+.quick-settings .originuicc-remove-control StIcon { icon-size: 16px; color: white; }
+
+.originuicc-control-gallery {
+  spacing: 12px;
+  padding: 18px;
+  border-radius: 26px;
+  background-color: rgba(30, 30, 34, 0.96);
+  color: white;
+  box-shadow: none !important;
+}
+.originuicc-gallery-header { spacing: 8px; }
+.originuicc-gallery-title,
+.originuicc-gallery-description { font-weight: 700; }
+.originuicc-gallery-close { padding: 6px; border-radius: 16px; background-color: transparent; }
+.originuicc-gallery-scroll { min-height: 0; }
+.originuicc-gallery-list { spacing: 12px; padding: 4px; }
+.originuicc-gallery-row { spacing: 12px; }
+.quick-settings .originuicc-editor-confirm {
+  spacing: 12px;
+  padding: 14px;
+  border-radius: 22px;
+  background-color: rgba(20, 20, 24, 0.42);
+  color: white;
+}
+.quick-settings .originuicc-confirm-title {
+  font-weight: 700;
+  text-align: center;
+}
+.quick-settings .originuicc-confirm-actions { spacing: 10px; }
+.quick-settings .originuicc-confirm-save,
+.quick-settings .originuicc-confirm-discard {
+  min-height: 36px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  color: white;
+}
+.quick-settings .originuicc-confirm-discard { background-color: rgba(255,255,255,0.16); }
+.quick-settings .originuicc-confirm-save { background-color: rgba(10,132,255,0.88); }
+.quick-settings .originuicc-editor-toolbar StLabel,
+.quick-settings .originuicc-edit-button StLabel {
+  color: white;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.85);
+}
+.originuicc-resize-grip {
+  width: 28px;
+  height: 28px;
+  icon-size: 28px;
+  padding: 0;
+  background-color: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+.quick-settings .originuicc-editing .quick-toggle,
+.quick-settings .originuicc-editing .quick-menu-toggle,
+.quick-settings .originuicc-editing .quick-toggle-has-menu {
+  background-color: rgba(255,255,255,0.4) !important;
+  outline: none !important;
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: 28px !important;
+}
+
+/* Keep the QS controls clean: no decorative strokes or drop shadows. */
+.quick-settings,
+.quick-settings * {
+  box-shadow: none !important;
+}
+.quick-settings .quick-toggle,
+.quick-settings .quick-menu-toggle,
+.quick-settings .quick-toggle-has-menu,
+.quick-settings .quick-slider,
+.quick-settings .quick-slider .icon-button {
+  border: none !important;
+}
+.quick-settings .quick-toggle,
+.quick-settings .quick-menu-toggle,
+.quick-settings .quick-toggle-has-menu { border-radius: 24px !important; }
+
+.originuicc-limit-dialog {
+  spacing: 14px;
+  padding: 18px 18px 14px;
+  border-radius: 24px;
+  background-color: rgba(32, 32, 36, 0.97);
+  color: white;
+  border-top: 1px solid rgba(255, 255, 255, 0.7) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.7) !important;
+  box-shadow: 0 6px 20px 0 rgba(0, 0, 0, 0.45) !important;
+}
+.originuicc-limit-title { font-size: 1.15em; font-weight: 700; }
+.originuicc-limit-dialog StLabel { text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6); }
+.originuicc-limit-message { color: rgba(255,255,255,0.82); }
+.originuicc-limit-okay {
+  min-height: 40px;
+  padding: 4px 18px;
+  border-radius: 20px;
+  background-color: rgba(10,132,255,0.78);
+  color: white;
+  border-top: 1px solid rgba(255, 255, 255, 0.7) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.7) !important;
+}
+
+.quick-settings .originuicc-whats-new { spacing: 16px; }
+.quick-settings .originuicc-whats-new-list { spacing: 12px; padding: 4px; }
+.quick-settings .originuicc-whats-new-item {
+  min-height: 76px;
+  padding: 16px;
+  border-radius: 18px;
+  background-color: rgba(255,255,255,0.12);
+}
+.quick-settings .originuicc-whats-new-copy { font-size: 1.05em; font-weight: 600; }
+.quick-settings .originuicc-whats-new-done {
+  min-height: 42px;
+  border-radius: 22px;
+  background-color: rgba(10,132,255,0.72);
+  color: white;
+}
+
+/* Liquid glass tiles: normal toggles and split menu toggles. */
+.quick-settings .quick-toggle,
+.quick-settings .quick-menu-toggle {
+  min-height: 58px !important;
+  background: rgba(255, 255, 255, 0.55) !important;
+  backdrop-filter: blur(26px) brightness(1) !important;
+  box-shadow: none !important;
+  border: none !important;
+  color: white !important;
+  transition: background-color 200ms ease, backdrop-filter 200ms ease, box-shadow 200ms ease, border-color 200ms ease;
+}
+
+/* Hard-light style hover: brighten and punch up the glass behind each tile. */
+.quick-settings .quick-toggle:hover,
+.quick-settings .quick-menu-toggle:hover,
+.quick-settings .quick-toggle-has-menu:hover {
+  background: rgba(255, 255, 255, 0.68) !important;
+  backdrop-filter: blur(26px) brightness(1.45) contrast(1.25) saturate(1.3) !important;
+  box-shadow: none !important;
+}
+
+/* Accent color for enabled tiles. */
+.quick-settings .quick-toggle:checked StIcon,
+.quick-settings .quick-menu-toggle:checked StIcon,
+.quick-settings .quick-toggle:checked StLabel,
+.quick-settings .quick-menu-toggle:checked StLabel,
+.quick-settings .quick-toggle:checked .quick-toggle-arrow,
+.quick-settings .quick-menu-toggle:checked .quick-toggle-arrow {
+  color: #0a84ff !important;
+}
+
+/* Split-toggle arrow button; scoped to QS because `.icon-button` is shared. */
+.quick-settings .quick-toggle-arrow-button {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  min-width: 28px !important;
+  padding-right: 12px !important;
+}
+
+/* Hide GNOME's split toggle separators inside QS only. */
+.quick-settings .quick-toggle-separator,
+.quick-settings .separator {
+  opacity: 0 !important;
+}
+
+/* Arrow icon inside split toggles. */
+.quick-settings .quick-toggle-arrow {
+  icon-size: 14px;
+  color: rgba(255, 255, 255, 0.8) !important;
+  box-shadow: none !important;
+}
+
+/* Tile icons and labels. */
+.quick-settings .quick-toggle StIcon,
+.quick-settings .quick-menu-toggle StIcon {
+  icon-size: 18px;
+  color: white !important;
+  border-radius: 999px !important;
+  box-shadow: none !important;
+  border: none !important;
+}
+
+.quick-settings .quick-toggle StLabel,
+.quick-settings .quick-menu-toggle StLabel {
+  font-weight: 600 !important;
+  color: white !important;
+}
+
+/* Arrow submenu opened from Wi-Fi/Bluetooth/etc. */
+.quick-settings .quick-toggle-menu,
+.quick-toggle-menu-container .quick-toggle-menu {
+  background: rgba(255, 255, 255, 0.55) !important;
+  backdrop-filter: blur(26px) brightness(1) !important;
+  border-radius: 24px !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* Liquid glass slider cards. */
+.quick-settings .quick-slider.originuicc-slider-size-1x2,
+.quick-settings .quick-slider.originuicc-slider-size-1x4 {
+  height: 58px !important;
+  min-height: 58px !important;
+  margin: 0;
+}
+.quick-settings .quick-slider.originuicc-slider-size-1x2 { margin-right: 6px; }
+
+.quick-settings .quick-slider {
+  border-radius: 24px !important;
+  height: 58px !important;
+  min-height: 58px !important;
+  padding: 0 14px !important;
+  background: rgba(255, 255, 255, 0.55) !important;
+  backdrop-filter: blur(26px) brightness(1) !important;
+  box-shadow: none !important;
+}
+
+/* Slider internals are not separate glass surfaces. */
+.quick-settings .quick-slider .quick-toggle-menu,
+.quick-settings .quick-slider .icon-button {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.quick-settings .slider {
+  height: 20px !important;
+}
+
+/* QS system/power row buttons. */
+.quick-settings .icon-button {
+  background: rgba(255, 255, 255, 0.55) !important;
+  backdrop-filter: blur(26px) brightness(1) !important;
+  box-shadow: none !important;
+  border: none !important;
+}
+
+/* Remove the default split look from QS menu toggles. */
+.quick-settings .quick-menu-toggle > StBoxLayout {
+  spacing: 0 !important;
+}
+
+.quick-settings .quick-menu-toggle .quick-toggle-arrow-button {
+  margin-left: -6px !important;
+}
+
+/* Light-mode colors for QS and its arrow submenus. */
+.quick-settings.originuicc-light .quick-toggle,
+.quick-settings.originuicc-light .quick-menu-toggle,
+.quick-settings.originuicc-light .quick-slider,
+.quick-settings.originuicc-light .icon-button,
+.quick-settings.originuicc-light .quick-toggle:hover,
+.quick-settings.originuicc-light .quick-menu-toggle:hover,
+.quick-settings.originuicc-light .quick-slider:hover,
+.quick-settings.originuicc-light .icon-button:hover,
+.quick-settings.originuicc-light .quick-toggle-menu,
+.quick-toggle-menu-container .quick-toggle-menu.originuicc-light {
+  background: rgba(255, 255, 255, 0.4) !important;
+  color: black !important;
+}
+
+.quick-settings.originuicc-light .quick-toggle:hover,
+.quick-settings.originuicc-light .quick-menu-toggle:hover,
+.quick-settings.originuicc-light .quick-toggle-has-menu:hover {
+  background: rgba(255, 255, 255, 0.76) !important;
+  backdrop-filter: blur(26px) brightness(1.4) contrast(1.3) saturate(1.25) !important;
+  box-shadow: none !important;
+}
+
+.quick-settings.originuicc-light .quick-toggle StIcon,
+.quick-settings.originuicc-light .quick-menu-toggle StIcon,
+.quick-settings.originuicc-light .quick-toggle StLabel,
+.quick-settings.originuicc-light .quick-menu-toggle StLabel,
+.quick-settings.originuicc-light .quick-toggle-arrow,
+.quick-toggle-menu-container .quick-toggle-menu.originuicc-light StLabel,
+.quick-toggle-menu-container .quick-toggle-menu.originuicc-light StIcon {
+  color: black !important;
+}
+
+/* Dark-mode colors for QS and its arrow submenus. */
+.quick-settings.originuicc-dark .quick-toggle,
+.quick-settings.originuicc-dark .quick-menu-toggle,
+.quick-settings.originuicc-dark .quick-slider,
+.quick-settings.originuicc-dark .icon-button,
+.quick-settings.originuicc-dark .quick-toggle:hover,
+.quick-settings.originuicc-dark .quick-menu-toggle:hover,
+.quick-settings.originuicc-dark .quick-slider:hover,
+.quick-settings.originuicc-dark .icon-button:hover,
+.quick-settings.originuicc-dark .quick-toggle-menu,
+.quick-toggle-menu-container .quick-toggle-menu.originuicc-dark {
+  background: rgba(0, 0, 0, 0.4) !important;
+  color: white !important;
+}
+
+.quick-settings.originuicc-dark .quick-toggle:hover,
+.quick-settings.originuicc-dark .quick-menu-toggle:hover,
+.quick-settings.originuicc-dark .quick-toggle-has-menu:hover {
+  background: rgba(255, 255, 255, 0.52) !important;
+  backdrop-filter: blur(26px) brightness(1.5) contrast(1.35) saturate(1.3) !important;
+  box-shadow: none !important;
+}
+
+/* Checked QS tiles use the accent background. Split toggles need the inner
+ * toggle and menu button because GNOME binds `checked` to those actors too. */
+.quick-settings.originuicc-light .quick-toggle:checked,
+.quick-settings.originuicc-light .quick-toggle-has-menu:checked,
+.quick-settings.originuicc-light .quick-toggle-has-menu .quick-toggle:checked,
+.quick-settings.originuicc-light .quick-toggle-menu-button:checked,
+.quick-settings.originuicc-dark .quick-toggle:checked,
+.quick-settings.originuicc-dark .quick-toggle-has-menu:checked,
+.quick-settings.originuicc-dark .quick-toggle-has-menu .quick-toggle:checked,
+.quick-settings.originuicc-dark .quick-toggle-menu-button:checked {
+  background: rgba(10, 132, 255, 0.6) !important;
+  color: white !important;
+}
+
+.quick-settings.originuicc-dark .quick-toggle StIcon,
+.quick-settings.originuicc-dark .quick-menu-toggle StIcon,
+.quick-settings.originuicc-dark .quick-toggle StLabel,
+.quick-settings.originuicc-dark .quick-menu-toggle StLabel,
+.quick-settings.originuicc-dark .quick-toggle-arrow,
+.quick-toggle-menu-container .quick-toggle-menu.originuicc-dark StLabel,
+.quick-toggle-menu-container .quick-toggle-menu.originuicc-dark StIcon {
+  color: white !important;
+}
+
+/* Checked QS state keeps readable content on the accent background. */
+.quick-settings.originuicc-light .quick-toggle:checked StIcon,
+.quick-settings.originuicc-light .quick-menu-toggle:checked StIcon,
+.quick-settings.originuicc-light .quick-toggle-menu-button:checked StIcon,
+.quick-settings.originuicc-light .quick-toggle:checked StLabel,
+.quick-settings.originuicc-light .quick-menu-toggle:checked StLabel,
+.quick-settings.originuicc-light .quick-toggle:checked .quick-toggle-arrow,
+.quick-settings.originuicc-light .quick-menu-toggle:checked .quick-toggle-arrow,
+.quick-settings.originuicc-dark .quick-toggle:checked StIcon,
+.quick-settings.originuicc-dark .quick-menu-toggle:checked StIcon,
+.quick-settings.originuicc-dark .quick-toggle-menu-button:checked StIcon,
+.quick-settings.originuicc-dark .quick-toggle:checked StLabel,
+.quick-settings.originuicc-dark .quick-menu-toggle:checked StLabel,
+.quick-settings.originuicc-dark .quick-toggle:checked .quick-toggle-arrow,
+.quick-settings.originuicc-dark .quick-menu-toggle:checked .quick-toggle-arrow {
+  color: white !important;
+}
+
+.quick-settings.originuicc-light .quick-slider .icon-button,
+.quick-settings.originuicc-dark .quick-slider .icon-button {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+/* Dash-to-Panel main panel backdrop surface. */
+#panel.dashtopanelMainPanel.originuicc-light,
+.dashtopanelMainPanel.panel.originuicc-light {
+  background: rgba(255, 255, 255, 0.55) !important;
+  backdrop-filter: blur(26px) brightness(1) !important;
+  border: none !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.7) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.7) !important;
+  box-shadow: none !important;
+}
+
+#panel.dashtopanelMainPanel.originuicc-dark,
+.dashtopanelMainPanel.panel.originuicc-dark {
+  background: rgba(0, 0, 0, 0.21) !important;
+  backdrop-filter: blur(26px) brightness(1) !important;
+  border: none !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.7) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.7) !important;
+  box-shadow: none !important;
+}
+
+/* Keep system action icons clean in either theme and on hover. */
+.quick-settings .icon-button,
+.quick-settings .icon-button:hover,
+.quick-settings.originuicc-light .icon-button,
+.quick-settings.originuicc-light .icon-button:hover,
+.quick-settings.originuicc-dark .icon-button,
+.quick-settings.originuicc-dark .icon-button:hover {
+  box-shadow: none !important;
+  border: none !important;
+}
+
+/* One surface per control: the native menu toggle contains an inner toggle.
+ * Clear its surface so glass opacity and hover highlights are not doubled. */
+.quick-settings .originuicc-tile {
+  min-width: 0 !important;
+  min-height: 0 !important;
+  padding: 0 16px !important;
+  border-radius: 999px !important;
+}
+.quick-settings .originuicc-tile.quick-toggle-has-menu {
+  padding: 0 !important;
+  background-color: rgba(255,255,255,0.55) !important;
+  backdrop-filter: blur(26px) brightness(1) !important;
+}
+.quick-settings.originuicc-light .originuicc-tile.quick-toggle-has-menu {
+  background-color: rgba(255,255,255,0.4) !important;
+}
+.quick-settings.originuicc-dark .originuicc-tile.quick-toggle-has-menu {
+  background-color: rgba(0,0,0,0.4) !important;
+}
+.quick-settings.originuicc-light .originuicc-tile.quick-toggle-has-menu:checked,
+.quick-settings.originuicc-dark .originuicc-tile.quick-toggle-has-menu:checked {
+  background-color: rgba(10,132,255,0.6) !important;
+}
+.quick-settings .originuicc-tile.quick-toggle-has-menu .quick-toggle,
+.quick-settings .originuicc-tile.quick-toggle-has-menu .quick-toggle-menu-button,
+.quick-settings.originuicc-light .originuicc-tile.quick-toggle-has-menu .quick-toggle:checked,
+.quick-settings.originuicc-dark .originuicc-tile.quick-toggle-has-menu .quick-toggle:checked,
+.quick-settings.originuicc-light .originuicc-tile.quick-toggle-has-menu .quick-toggle-menu-button:checked,
+.quick-settings.originuicc-dark .originuicc-tile.quick-toggle-has-menu .quick-toggle-menu-button:checked {
+  min-width: 0 !important;
+  min-height: 0 !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  backdrop-filter: none !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+.quick-settings .originuicc-tile.quick-toggle-has-menu .quick-toggle { padding: 0 16px !important; }
+.quick-settings .originuicc-tile.quick-toggle-has-menu .quick-toggle-menu-button {
+  padding: 0 12px 0 0 !important;
+  border-radius: 999px !important;
+}
+.quick-settings .originuicc-tile .quick-toggle-icon { icon-size: 20px !important; }
+.quick-settings .originuicc-tile .quick-toggle-menu-button StIcon { icon-size: 14px !important; }
+.quick-settings .originuicc-tile .quick-toggle-title,
+.quick-settings .originuicc-tile .quick-toggle-subtitle {
+  text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+}
+.quick-settings .originuicc-tile > StBoxLayout,
+.quick-settings .originuicc-tile .quick-toggle > StBoxLayout { spacing: 10px; }
+.quick-settings .originuicc-tile.quick-toggle-has-menu > StBoxLayout { spacing: 0; }
+
+/* The cell allocator sets square 1x1 cells, double-width pills, and 2x2 cards. */
+.quick-settings .originuicc-tile.originuicc-size-1x1,
+.quick-settings .originuicc-tile.originuicc-size-1x1 .quick-toggle {
+  padding: 0 !important;
+  border-radius: 999px !important;
+}
+.quick-settings .originuicc-tile.originuicc-size-1x1 > StBoxLayout,
+.quick-settings .originuicc-tile.originuicc-size-1x1 .quick-toggle > StBoxLayout { spacing: 0 !important; }
+.quick-settings .originuicc-tile.originuicc-size-2x1,
+.quick-settings .originuicc-tile.originuicc-size-2x1 .quick-toggle { border-radius: 999px !important; }
+.quick-settings .originuicc-tile.originuicc-size-2x2,
+.quick-settings .originuicc-tile.originuicc-size-2x2 .quick-toggle {
+  padding: 14px !important;
+  border-radius: 22px !important;
+}
+.quick-settings .originuicc-tile.originuicc-size-2x2.quick-toggle-has-menu { padding: 0 !important; }
+.quick-settings .originuicc-tile.originuicc-size-2x2 StLabel { text-align: right; }
+
+/* Gallery entries are real default-size toggle previews with the same theme. */
+.originuicc-control-gallery .originuicc-gallery-list.quick-settings {
+  padding: 4px !important;
+  min-width: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+.originuicc-control-gallery .originuicc-gallery-pill {
+  height: 64px;
+  min-width: 0 !important;
+}
+.originuicc-control-gallery .originuicc-gallery-add-icon { icon-size: 16px !important; }
+
+/* The 4x8 control grid scrolls within the display work area. */
+.quick-settings { min-width: 0 !important; }
+.quick-settings .originuicc-reset-button,
+.quick-settings .originuicc-reset-button StLabel {
+  color: white !important;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85) !important;
+}
+
+/* Keep the five native system actions circular and vertically centered. */
+.quick-settings .originuicc-system-row {
+  padding: 0 !important;
+  background: transparent !important;
+  border: none !important;
+}
+.quick-settings .originuicc-system-row > StBoxLayout { spacing: 8px; }
+.quick-settings .originuicc-system-circle,
+.quick-settings .originuicc-system-circle.quick-toggle,
+.quick-settings .originuicc-system-circle.icon-button {
+  width: 44px !important;
+  height: 44px !important;
+  min-width: 44px !important;
+  min-height: 44px !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border-radius: 999px !important;
+}
+.quick-settings .originuicc-system-circle StIcon { icon-size: 20px !important; }
+.quick-settings .originuicc-system-circle > StBoxLayout { spacing: 0 !important; }
+
+/* Glass rims belong to each outer surface, without a second rim on the
+ * inner button of Wi-Fi, Bluetooth, and other split controls. */
+.quick-settings .originuicc-tile,
+.quick-settings .originuicc-editing .originuicc-tile,
+.quick-settings .quick-slider,
+.quick-settings .originuicc-system-row .originuicc-system-circle,
+.quick-settings.originuicc-light .originuicc-system-row .originuicc-system-circle.icon-button,
+.quick-settings.originuicc-dark .originuicc-system-row .originuicc-system-circle.icon-button,
+.quick-settings.originuicc-light .originuicc-system-row .originuicc-system-circle.icon-button:hover,
+.quick-settings.originuicc-dark .originuicc-system-row .originuicc-system-circle.icon-button:hover,
+.quick-settings .originuicc-editor-confirm,
+.quick-settings .originuicc-done-button,
+.quick-settings .originuicc-confirm-save,
+.quick-settings .originuicc-confirm-discard {
+  border-top: 1px solid rgba(255, 255, 255, 0.7) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.7) !important;
+}
+.quick-settings .originuicc-tile.quick-toggle-has-menu .quick-toggle,
+.quick-settings .originuicc-tile.quick-toggle-has-menu .quick-toggle-menu-button,
+.quick-settings.originuicc-light .originuicc-tile.quick-toggle-has-menu .quick-toggle:checked,
+.quick-settings.originuicc-dark .originuicc-tile.quick-toggle-has-menu .quick-toggle:checked,
+.quick-settings.originuicc-light .originuicc-tile.quick-toggle-has-menu .quick-toggle-menu-button:checked,
+.quick-settings.originuicc-dark .originuicc-tile.quick-toggle-has-menu .quick-toggle-menu-button:checked {
+  border-top: none !important;
+  border-bottom: none !important;
+}
+
+/* The panel wrapper stays transparent while the controls retain their rims. */
+.quick-settings.originuicc-control-centre,
+.originuicc-panel-viewport {
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+.originuicc-panel-viewport { padding: 0; }
+.quick-settings .originuicc-tile { transition-duration: 220ms; }
+
+/* No divider or reserved divider width beside the pill's submenu arrow. */
+.quick-settings .originuicc-tile .quick-toggle-separator {
+  width: 0 !important;
+  min-width: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  background: transparent !important;
+}
+.quick-settings .originuicc-tile .quick-toggle-menu-button {
+  border-left: none !important;
+  border-right: none !important;
+}

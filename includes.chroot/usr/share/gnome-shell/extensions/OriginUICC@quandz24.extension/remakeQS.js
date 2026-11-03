@@ -2,6 +2,10 @@ import GLib from "gi://GLib";
 import Gio from "gi://Gio";
 import St from "gi://St";
 import Clutter from "gi://Clutter";
+import GObject from "gi://GObject";
+import Meta from "gi://Meta";
+import Graphene from "gi://Graphene";
+import {QuickToggle} from "resource:///org/gnome/shell/ui/quickSettings.js";
 
 import * as Main from "resource:///org/gnome/shell/ui/main.js";
 
@@ -299,6 +303,138 @@ export function animateActorOpen(actor, start = {}, end = {}, options = {}) {
   animationIds?.set(actor, frameId);
 }
 
+// Keep Shell's child metadata and submenu overlay, while allocating real cells
+// for compact, pill and large controls. Shell's stock layout only spans columns.
+const OriginUICCControlLayout = GObject.registerClass({
+  GTypeName: 'OriginUICCControlLayout',
+}, class OriginUICCControlLayout extends Clutter.LayoutManager {
+  _init(state, originalLayout) {
+    super._init();
+    this.state = state;
+    this.nColumns = 4;
+    this._overlay = originalLayout._overlay;
+    this._metaType = originalLayout.vfunc_get_child_meta_type();
+  }
+
+  vfunc_get_child_meta_type() { return this._metaType; }
+
+  _metrics() {
+    const scale = St.ThemeContext.get_for_stage(global.stage).scale_factor;
+    return {cell: this.state.cellSize ?? 64 * scale, gap: 10 * scale};
+  }
+
+  _preferredWidth(container) {
+    const {cell, gap} = this._metrics();
+    let width = 4 * cell + 3 * gap;
+    for (const actor of container.get_children()) {
+      if (!actor.visible || actor === this._overlay || this.state.actors.has(actor) || this.state.sliders.has(actor)) continue;
+      width = Math.max(width, actor.get_preferred_width(-1)[0]);
+    }
+    return width;
+  }
+
+  _plan(container, width) {
+    const metrics = this._metrics();
+    const gap = metrics.gap;
+    const cell = Math.max(1, Math.min(metrics.cell, (width - 3 * gap) / 4));
+    const columnGap = Math.max(gap, (width - 4 * cell) / 3);
+    const slots = new Map();
+    let y = 0;
+    let column = 0;
+    let rowHeight = 0;
+    // The system actions stay in a separate, fixed section above the controls.
+    for (const actor of container.get_children()) {
+      if (!actor.visible || actor === this._overlay || this.state.actors.has(actor) || this.state.sliders.has(actor)) continue;
+      const span = Math.min(4, this.get_child_meta(container, actor).columnSpan ?? 4);
+      if (column + span > 4) { y += rowHeight + gap; column = 0; rowHeight = 0; }
+      const actorWidth = span * cell + (span - 1) * columnGap;
+      const height = Math.max(1, actor.get_preferred_height(actorWidth)[1]);
+      slots.set(actor, {x: column * (cell + columnGap), y, width: actorWidth, height});
+      rowHeight = Math.max(rowHeight, height);
+      column += span;
+      if (column === 4) { y += rowHeight + gap; column = 0; rowHeight = 0; }
+    }
+    if (column > 0) y += rowHeight + gap;
+    const baseY = y;
+    const cells = [];
+    let usedRows = 0;
+    for (const actor of container.get_children()) {
+      const rec = this.state.actors.get(actor) ?? this.state.sliders.get(actor);
+      if (!rec || rec.removed || !actor.visible) continue;
+      const [cols, rows] = this.state.sliders.has(actor) ? [4, 1]
+        : rec.size === '1x1' ? [1, 1] : rec.size === '2x2' ? [2, 2] : [2, 1];
+      let placed = false;
+      for (let row = 0; !placed; row++) {
+        for (let col = 0; col <= 4 - cols && !placed; col++) {
+          let free = true;
+          for (let dy = 0; dy < rows; dy++)
+            for (let dx = 0; dx < cols; dx++)
+              if (cells[row + dy]?.[col + dx]) free = false;
+          if (!free) continue;
+          for (let dy = 0; dy < rows; dy++) {
+            cells[row + dy] ??= [];
+            for (let dx = 0; dx < cols; dx++) cells[row + dy][col + dx] = true;
+          }
+          slots.set(actor, {x: col * (cell + columnGap), y: baseY + row * (cell + gap),
+            width: cols * cell + (cols - 1) * columnGap, height: rows * cell + (rows - 1) * gap});
+          usedRows = Math.max(usedRows, row + rows);
+          placed = true;
+        }
+      }
+    }
+    let height = usedRows ? baseY + usedRows * (cell + gap) - gap : Math.max(0, baseY - gap);
+    const overlayHeight = this._overlay?.get_preferred_height(-1)[1] ?? 0;
+    const openActor = [...slots.keys()].find(actor => actor.menu?.actor.visible);
+    let menuY = null;
+    if (openActor && overlayHeight > 0) {
+      const source = slots.get(openActor);
+      menuY = source.y + source.height;
+      // An expanded menu begins after every control crossing its row. Keeping
+      // a single cut prevents a large neighbor from colliding with later rows.
+      let previous;
+      do {
+        previous = menuY;
+        for (const slot of slots.values())
+          if (slot.y < menuY && slot.y + slot.height > menuY) menuY = slot.y + slot.height;
+      } while (menuY !== previous);
+      for (const slot of slots.values())
+        if (slot.y >= menuY) slot.y += overlayHeight;
+      height = Math.max(height, menuY) + overlayHeight;
+    }
+    return {slots, height, openActor, menuY};
+  }
+
+  vfunc_get_preferred_width(container, _forHeight) {
+    const width = this._preferredWidth(container);
+    return [width, width];
+  }
+
+  vfunc_get_preferred_height(container, forWidth) {
+    const width = forWidth > 0 ? forWidth : this._preferredWidth(container);
+    const {height} = this._plan(container, width);
+    return [height, height];
+  }
+
+  vfunc_allocate(container, box) {
+    const width = box.get_width();
+    const {slots, openActor, menuY} = this._plan(container, width);
+    const rtl = container.text_direction === Clutter.TextDirection.RTL;
+    this._overlay?.allocate_available_size(0, 0, width, box.get_height());
+    for (const [actor, slot] of slots) {
+      const childBox = new Clutter.ActorBox();
+      childBox.set_origin(box.x1 + (rtl ? width - slot.x - slot.width : slot.x), box.y1 + slot.y);
+      childBox.set_size(slot.width, slot.height);
+      actor.allocate(childBox);
+    }
+    if (openActor && menuY !== null) {
+      const binding = openActor.menu.actor.get_constraints().find(constraint =>
+        constraint instanceof Clutter.BindConstraint && constraint.coordinate === Clutter.BindCoordinate.Y && constraint.source === openActor);
+      const offset = menuY - slots.get(openActor).y;
+      if (binding && Math.abs(binding.offset - offset) > 0.5) binding.offset = offset;
+    }
+  }
+});
+
 export class QuickSettingsRemake {
   constructor(extension = null) {
     this._extension = extension;
@@ -416,6 +552,7 @@ export class QuickSettingsRemake {
               return GLib.SOURCE_REMOVE;
             });
           } else if (editorState?.editing) {
+            if (editorState.exitAction === false) this._restoreEditorSnapshot(editorState);
             this._savedLayout = this._serializeLayout(editorState);
             this._savedRemoved = [...editorState.removed];
             this._writeLayout(this._savedLayout, this._savedRemoved);
@@ -489,10 +626,8 @@ export class QuickSettingsRemake {
 
   _isMovableToggle(actor) {
     const classes = actor?.get_style_class_name?.() ?? "";
-    if (!/(^|\s)(quick-toggle|quick-menu-toggle|quick-toggle-has-menu)(\s|$)/.test(classes)) return false;
-    // Power Mode is a user control. Fixed power/session actions use their
-    // system-item class and are kept out of this movable-toggle predicate.
-    return !/(battery|screenshot|settings|lock|session)/i.test(this._controlDescription(actor));
+    return /(^|\s)(quick-toggle|quick-menu-toggle|quick-toggle-has-menu)(\s|$)/.test(classes)
+      && !/(^|\s)(power-item|quick-settings-system-item)(\s|$)/.test(classes);
   }
 
   _controlId(actor) {
@@ -506,6 +641,7 @@ export class QuickSettingsRemake {
     if (!grid || !menu.box) return;
     let state = this._editorMenus.get(menu);
     if (!state) {
+      menu.box.add_style_class_name("originuicc-control-centre");
       const layoutManager = grid.layout_manager;
       const originalColumns = layoutManager.nColumns ?? layoutManager.n_columns ?? 2;
       try { layoutManager.nColumns = 4; } catch (_) {}
@@ -521,7 +657,7 @@ export class QuickSettingsRemake {
       toolbar.add_child(doneButton);
       menu.box.add_child(editButton);
       menu.box.add_child(toolbar);
-      state = {menu, grid, button: editButton, toolbar, addButton, resetButton, doneButton, originalColumns, editing: false, actors: new Map(), sliders: new Map(), removed: new Set(this._savedRemoved), fixedSpans: new Map(), fixedRowSpans: new Map(), originalPositions: new Map(), initialOrder: [], saved: null, savedRemoved: [], assistantShown: false, savedApplied: false, signature: "", stablePasses: 0};
+      state = {menu, grid, button: editButton, toolbar, addButton, resetButton, doneButton, actions, originalLayout: layoutManager, originalColumns, editing: false, actors: new Map(), sliders: new Map(), removed: new Set(this._savedRemoved), fixedSpans: new Map(), fixedRowSpans: new Map(), originalPositions: new Map(), initialOrder: [], saved: null, savedRemoved: [], assistantShown: false, savedApplied: false, signature: "", stablePasses: 0};
       state.clickId = editButton.connect("clicked", () => this._enterEditMode(state));
       state.addId = addButton.connect("clicked", () => this._openControlGallery(state));
       state.resetId = resetButton.connect("clicked", () => this._resetLayout(state));
@@ -536,6 +672,7 @@ export class QuickSettingsRemake {
       menu.actor.add_child(state.gripLayer);
       this._editorMenus.set(menu, state);
     }
+    if (state.restoring) return;
     for (const [index, child] of grid.get_children().entries())
       if (!state.originalPositions.has(child)) state.originalPositions.set(child, index);
 
@@ -552,7 +689,6 @@ export class QuickSettingsRemake {
         try { originalRowSpan = grid.layout_manager.get_child_meta(grid, actor).rowSpan ?? 1; } catch (_) {}
         state.fixedRowSpans.set(actor, originalRowSpan);
         try { grid.layout_manager.child_set_property(grid, actor, "column-span", /(^|\s)quick-settings-system-item(\s|$)/.test(actor.get_style_class_name?.() ?? "") ? 4 : 2); } catch (_) {}
-        try { grid.layout_manager.child_set_property(grid, actor, "row-span", 1); } catch (_) {}
       }
     });
 
@@ -591,6 +727,18 @@ export class QuickSettingsRemake {
       if (state.removed.has(rec.id)) this._setControlRemoved(state, actor, rec, true);
     }
 
+    if (!state.cellLayout) {
+      const spans = new Map(grid.get_children().map(actor => [actor,
+        grid.layout_manager.get_child_meta(grid, actor).columnSpan ?? 1]));
+      state.cellLayout = new OriginUICCControlLayout(state, state.originalLayout);
+      grid.layout_manager = state.cellLayout;
+      for (const [actor, span] of spans)
+        grid.layout_manager.child_set_property(grid, actor, "column-span", span);
+    }
+
+    this._setupPanelViewport(state);
+    this._styleSystemActions(state);
+    this._syncPanelHeight(state);
     const signature = [...state.actors, ...state.sliders].map(([, rec]) => rec.id).sort().join("|");
     const fixedSignature = state.fixedActors.map(actor => this._controlId(actor)).sort().join("|");
     const inventoryChanged = signature !== state.signature || fixedSignature !== state.fixedSignature;
@@ -652,9 +800,11 @@ export class QuickSettingsRemake {
     rec.removeButton = new St.Button({style_class: "originuicc-remove-control", child: new St.Icon({icon_name: "list-remove-symbolic", icon_size: 16}), can_focus: true, visible: false});
     state.gripLayer.add_child(rec.removeButton);
     rec.removeButton.connect("clicked", () => this._removeControl(state, actor, rec));
-    rec.allocId = actor.connect("notify::allocation", () => this._positionResizeGrip(state, actor, rec.handle, rec.removeButton));
-    // Drag initiation is handled at stage capture so it works consistently
-    // across toggle subclasses and their internal buttons.
+    rec.allocId = actor.connect("notify::allocation", () => this._queueEditorHandles(state));
+    rec.transformIds = ["scale-x", "scale-y", "translation-x", "translation-y"]
+      .map(property => actor.connect(`notify::${property}`, () => this._queueEditorHandles(state)));
+    rec.pressIds = [actor, this._toggleContents(actor)].filter((widget, index, widgets) => widgets.indexOf(widget) === index)
+      .map(widget => [widget, widget.connect("button-press-event", (_actor, event) => this._editorDragEvent(state, event))]);
   }
 
   _cycleTileSize(state, actor, rec) {
@@ -666,8 +816,8 @@ export class QuickSettingsRemake {
       this._showMaxControlsDialog(state);
       return;
     }
-    this._setTileSize(state, actor, nextSize);
-    this._positionResizeGrip(state, actor, rec.handle, rec.removeButton);
+    const order = state.grid.get_children().filter(child => state.actors.has(child) || state.sliders.has(child));
+    this._animateGridReorder(state, order, null, () => this._setTileSize(state, actor, nextSize));
   }
 
   _reorderGrid(state, preferredOrder = null) {
@@ -682,10 +832,7 @@ export class QuickSettingsRemake {
       try { state.grid.set_child_at_index(actor, index); } catch (_) {}
     });
     state.grid.queue_relayout();
-    if (state.editing) for (const actor of active) {
-      const rec = state.actors.get(actor) ?? state.sliders.get(actor);
-      if (rec) this._positionResizeGrip(state, actor, rec.handle, rec.removeButton);
-    }
+    this._queuePanelFit(state);
   }
 
   _setControlRemoved(state, actor, rec, removed) {
@@ -706,10 +853,12 @@ export class QuickSettingsRemake {
   }
 
   _removeControl(state, actor, rec) {
-    if (!state.editing || rec.removed) return;
+    if (!state.editing || rec.removed || rec.removing) return;
+    rec.removing = true;
     actor.remove_all_transitions();
     actor.ease({scale_x: 0.82, scale_y: 0.82, opacity: 0, duration: 170, mode: Clutter.AnimationMode.EASE_IN_QUAD, onComplete: () => {
       if (actor.is_destroyed?.()) return;
+      rec.removing = false;
       actor.scale_x = 1;
       actor.scale_y = 1;
       actor.opacity = 255;
@@ -719,7 +868,8 @@ export class QuickSettingsRemake {
   }
 
   _restoreControl(state, actor, rec) {
-    if (state.actors.has(actor) && !this._fitsTileGrid(state, null, actor, "2x1")) {
+    if (!state.editing || !rec.removed) return false;
+    if (!this._fitsTileGrid(state, null, actor, "2x1")) {
       this._showMaxControlsDialog(state);
       return false;
     }
@@ -727,6 +877,7 @@ export class QuickSettingsRemake {
     if (parent && parent !== state.grid) parent.remove_child(actor);
     actor.remove_all_transitions();
     actor.reactive = true;
+    actor.set_pivot_point(0.5, 0.5);
     actor.scale_x = 0.84;
     actor.scale_y = 0.84;
     actor.opacity = 0;
@@ -739,7 +890,8 @@ export class QuickSettingsRemake {
       this._setControlRemoved(state, actor, rec, false);
       this._setTileSize(state, actor, "2x1");
     }
-    actor.ease({scale_x: 1, scale_y: 1, opacity: 255, duration: 190, mode: Clutter.AnimationMode.EASE_OUT_QUAD});
+    actor.ease({scale_x: 1, scale_y: 1, opacity: 255, duration: 190, mode: Clutter.AnimationMode.EASE_OUT_QUAD,
+      onComplete: () => this._positionResizeGrip(state, actor, rec.handle, rec.removeButton)});
     this._refreshControlGallery(state);
     return true;
   }
@@ -769,7 +921,7 @@ export class QuickSettingsRemake {
     header.add_child(close);
     panel.add_child(header);
     panel.add_child(new St.Label({text: "Add removed controls back to Quick Settings.", style_class: "originuicc-gallery-description"}));
-    const list = new St.BoxLayout({vertical: true, style_class: "originuicc-gallery-list"});
+    const list = new St.BoxLayout({vertical: true, style_class: `quick-settings originuicc-gallery-list ${this._getColorSchemeClass()}`});
     const scroll = new St.ScrollView({style_class: "originuicc-gallery-scroll", x_expand: true, y_expand: true, reactive: true, can_focus: true, enable_mouse_scrolling: true, overlay_scrollbars: false});
     scroll.set_policy(St.PolicyType.NEVER, St.PolicyType.AUTOMATIC);
     scroll.set_child(list);
@@ -783,13 +935,15 @@ export class QuickSettingsRemake {
     state.menu.actor.add_child(host);
     state.galleryHost = host;
     host.add_child(panel);
-    const panelWidth = Math.min(620, global.stage.width - 48);
-    const panelHeight = Math.min(520, global.stage.height - 64);
-    const panelX = (global.stage.width - panelWidth) / 2;
-    const panelY = (global.stage.height - panelHeight) / 2;
+    const scale = St.ThemeContext.get_for_stage(global.stage).scale_factor;
+    const monitor = Main.layoutManager.findMonitorForActor(state.menu.actor) ?? Main.layoutManager.primaryMonitor;
+    const panelWidth = Math.min(580 * scale, monitor.width - 48 * scale);
+    const panelHeight = Math.min(520 * scale, monitor.height - 64 * scale);
+    const panelX = monitor.x + (monitor.width - panelWidth) / 2;
+    const panelY = monitor.y + (monitor.height - panelHeight) / 2;
     const [menuX, menuY] = state.menu.actor.get_transformed_position();
     panel.set_size(panelWidth, panelHeight);
-    scroll.set_size(panelWidth - 48, panelHeight - 150);
+    scroll.set_size(panelWidth - 48 * scale, panelHeight - 150 * scale);
     panel.set_position(panelX - menuX, panelY - menuY);
     panel.translation_y = 48;
     panel.opacity = 0;
@@ -824,20 +978,27 @@ export class QuickSettingsRemake {
         list.add_child(new St.Label({text: "All available controls are already in Quick Settings."}));
         return GLib.SOURCE_REMOVE;
       }
+      const scale = St.ThemeContext.get_for_stage(global.stage).scale_factor;
       for (let index = 0; index < removed.length; index += 2) {
-        const row = new St.BoxLayout({style_class: "originuicc-gallery-row"});
-        row.x_expand = true;
-        for (const [actor, rec] of removed.slice(index, index + 2)) {
-          const tile = new St.BoxLayout({vertical: true, style_class: "originuicc-gallery-tile"});
-          tile.x_expand = true;
-          const iconName = actor?._icon?.icon_name ?? actor?._box?.get_first_child?.()?.icon_name ?? actor?.icon_name ?? "preferences-system-symbolic";
-          tile.add_child(new St.Icon({icon_name: iconName, icon_size: 20, x_align: Clutter.ActorAlign.CENTER}));
-          tile.add_child(new St.Label({text: this._controlLabel(actor, rec), x_expand: true, x_align: Clutter.ActorAlign.CENTER}));
-          const add = new St.Button({child: new St.Icon({icon_name: "list-add-symbolic", icon_size: 18}), style_class: "originuicc-gallery-add", can_focus: true});
-          tile.add_child(add);
-          row.add_child(tile);
-          add.connect("clicked", () => this._restoreControl(state, actor, rec));
+        const row = new St.BoxLayout({style_class: "originuicc-gallery-row", x_expand: true});
+        row.layout_manager.homogeneous = true;
+        const entries = removed.slice(index, index + 2);
+        for (const [actor, rec] of entries) {
+          const source = this._toggleContents(actor)._icon ?? actor._icon;
+          const label = this._controlLabel(actor, rec);
+          const pill = new QuickToggle({title: label, checked: !!actor.checked, toggle_mode: true,
+            style_class: "quick-toggle button originuicc-tile originuicc-size-2x1 originuicc-gallery-pill",
+            accessible_name: `Add ${label}`, can_focus: true, x_expand: true, height: 64 * scale});
+          if (source?.gicon) pill.gicon = source.gicon;
+          else pill.icon_name = source?.icon_name ?? actor.icon_name ?? "preferences-system-symbolic";
+          pill._icon.icon_size = 20;
+          pill._icon.y_align = Clutter.ActorAlign.CENTER;
+          pill._box.add_child(new St.Icon({icon_name: "list-add-symbolic", icon_size: 16,
+            style_class: "originuicc-gallery-add-icon", y_align: Clutter.ActorAlign.CENTER}));
+          pill.connect("clicked", () => this._restoreControl(state, actor, rec));
+          row.add_child(pill);
         }
+        if (entries.length === 1) row.add_child(new St.Widget({x_expand: true}));
         list.add_child(row);
       }
       return GLib.SOURCE_REMOVE;
@@ -856,6 +1017,7 @@ export class QuickSettingsRemake {
 
   _resetLayout(state) {
     if (!state.editing) return;
+    this._resetEditorActors(state);
     state.removed.clear();
     for (const [actor, rec] of state.sliders) {
       rec.removed = false;
@@ -866,6 +1028,7 @@ export class QuickSettingsRemake {
     for (const [actor, rec] of state.actors) {
       this._setTileSize(state, actor, "2x1");
       rec.removed = true;
+      rec.removing = false;
       state.removed.add(rec.id);
       this._setResizeGripVisible(rec.handle, false);
       this._setResizeGripVisible(rec.removeButton, false);
@@ -879,21 +1042,172 @@ export class QuickSettingsRemake {
     }
     const order = state.initialOrder.filter(actor => state.sliders.has(actor));
     this._reorderGrid(state, order);
+    this._refreshControlGallery(state);
+  }
+
+  _queueEditorHandles(state) {
+    if (!state.editing || state.restoring || state.destroyed || state.handlesLater || state.reflowLater) return;
+    state.handlesLater = global.compositor.get_laters().add(Meta.LaterType.BEFORE_REDRAW, () => {
+      state.handlesLater = 0;
+      if (!state.editing || state.restoring || state.destroyed) return GLib.SOURCE_REMOVE;
+      for (const [actor, rec] of [...state.actors, ...state.sliders])
+        if (!rec.removed && actor.get_parent?.() === state.grid)
+          this._positionResizeGrip(state, actor, rec.handle, rec.removeButton);
+      return GLib.SOURCE_REMOVE;
+    });
   }
 
   _positionResizeGrip(state, actor, grip, removeButton = null) {
-    if (!actor || actor.is_destroyed?.() || (!grip && !removeButton)) return;
+    if (state.restoring || !state.editing || !actor || actor.is_destroyed?.() || (!grip && !removeButton)) return;
     const [x, y] = actor.get_transformed_position();
     const [width, height] = actor.get_transformed_size();
-    if (grip && !grip.is_destroyed?.()) {
-      const [ok, localX, localY] = state.gripLayer.transform_stage_point(x + width - 23, y + height - 23);
-      if (ok) grip.set_position(localX, localY);
-      try { state.gripLayer.set_child_above_sibling(grip, null); } catch (_) {}
+    const scale = St.ThemeContext.get_for_stage(global.stage).scale_factor;
+    let view = null;
+    if (state.panelViewport) {
+      const [vx, vy] = state.panelViewport.get_transformed_position();
+      const [vw, vh] = state.panelViewport.get_transformed_size();
+      view = {x: vx, y: vy, width: vw, height: vh};
     }
-    if (removeButton) {
-      const [removeOk, removeX, removeY] = state.gripLayer.transform_stage_point(x - 1, y - 1);
-      if (removeOk) removeButton.set_position(removeX, removeY);
-      try { state.gripLayer.set_child_above_sibling(removeButton, null); } catch (_) {}
+    const showAt = (button, bx, by) => {
+      const fits = !view || (bx >= view.x && by >= view.y && bx + button.width <= view.x + view.width && by + button.height <= view.y + view.height);
+      button.visible = fits;
+      return fits;
+    };
+    if (grip && !grip.is_destroyed?.()) {
+      grip.translation_x = grip.translation_y = 0;
+      const sx = x + width - (grip.width || 28 * scale) + 5 * scale;
+      const sy = y + height - (grip.height || 28 * scale) + 5 * scale;
+      if (showAt(grip, sx, sy)) {
+        const [ok, localX, localY] = state.gripLayer.transform_stage_point(sx, sy);
+        if (ok) grip.set_position(localX, localY);
+      }
+    }
+    if (removeButton && !removeButton.is_destroyed?.()) {
+      removeButton.translation_x = removeButton.translation_y = 0;
+      const sx = x - scale, sy = y - scale;
+      if (showAt(removeButton, sx, sy)) {
+        const [ok, localX, localY] = state.gripLayer.transform_stage_point(sx, sy);
+        if (ok) removeButton.set_position(localX, localY);
+      }
+    }
+  }
+
+  _setupPanelViewport(state) {
+    if (state.panelViewport) return;
+    const bin = state.menu._boxPointer?.bin;
+    if (!bin || bin.get_child() !== state.menu.box) return;
+    const viewport = new St.ScrollView({style_class: "originuicc-panel-viewport",
+      reactive: true, enable_mouse_scrolling: true, overlay_scrollbars: false});
+    viewport.set_policy(St.PolicyType.NEVER, St.PolicyType.AUTOMATIC);
+    viewport.set_clip_to_allocation(true);
+    bin.set_child(null);
+    viewport.set_child(state.menu.box);
+    bin.set_child(viewport);
+    state.panelViewport = viewport;
+    const adjustment = viewport.vadjustment ?? viewport.get_vadjustment?.()
+      ?? viewport.get_vscroll_bar?.().get_adjustment();
+    state.scrollAdjustment = adjustment;
+    state.viewportSignals = [];
+    if (adjustment) {
+      state.viewportSignals.push([adjustment, adjustment.connect("notify::value", () => {
+        // A submenu must not remain floating over controls that scroll away.
+        state.menu._activeMenu?.close(false);
+        this._queuePanelFit(state);
+        this._queueEditorHandles(state);
+      })]);
+    }
+    for (const property of ["x", "y", "translation-x", "translation-y"]) {
+      const pointer = state.menu._boxPointer;
+      state.viewportSignals.push([pointer, pointer.connect(`notify::${property}`, () => {
+        this._queueEditorHandles(state);
+      })]);
+    }
+    state.viewportSignals.push([state.menu.box, state.menu.box.connect("notify::height", () => this._queuePanelFit(state))]);
+  }
+
+  _queuePanelFit(state) {
+    if (state.destroyed || state.restoring || state.fitLater) return;
+    state.fitLater = global.compositor.get_laters().add(Meta.LaterType.BEFORE_REDRAW, () => {
+      state.fitLater = 0;
+      if (state.destroyed || state.restoring) return GLib.SOURCE_REMOVE;
+      this._syncPanelHeight(state);
+      const overlay = state.menu._overlay;
+      if (overlay && state.menu.isOpen) {
+        const offset = state.grid.apply_relative_transform_to_point(state.menu._boxPointer, new Graphene.Point3D());
+        const binding = overlay.get_constraints().find(constraint =>
+          constraint instanceof Clutter.BindConstraint && constraint.coordinate === Clutter.BindCoordinate.Y);
+        if (binding && Math.abs(binding.offset - offset.y) > 0.5) binding.offset = offset.y;
+      }
+      this._queueEditorHandles(state);
+      return GLib.SOURCE_REMOVE;
+    });
+  }
+
+  _syncPanelHeight(state) {
+    if (state.destroyed || state.restoring) return;
+    const scale = St.ThemeContext.get_for_stage(global.stage).scale_factor;
+    const monitor = Main.layoutManager.findMonitorForActor(state.menu._boxPointer ?? state.menu.actor) ?? Main.layoutManager.primaryMonitor;
+    const workArea = Main.layoutManager.getWorkAreaForMonitor(monitor.index);
+    state.rowLimit = 8;
+    // Keep usable control sizes on scaled monitors; the viewport handles any
+    // height beyond the work area without changing the 4x8 grid's capacity.
+    const cell = 64 * scale;
+    if (state.cellSize !== cell) {
+      state.cellSize = cell;
+      state.grid.queue_relayout();
+    }
+    if (state.panelViewport) {
+      const available = Math.max(96 * scale, workArea.height - 40 * scale);
+      const natural = state.menu.box.get_preferred_height(-1)[1];
+      const height = Math.min(Math.max(1, natural), available);
+      if (state.viewportHeight !== height) {
+        state.viewportHeight = height;
+        state.panelViewport.height = height;
+      }
+    }
+  }
+
+  _styleSystemActions(state) {
+    state.systemRecords ??= new Map();
+    for (const row of state.fixedActors ?? []) {
+      if (!row.has_style_class_name?.("quick-settings-system-item")) continue;
+      row.add_style_class_name("originuicc-system-row");
+      const box = row.get_child?.() ?? row.child;
+      for (const button of box?.get_children?.() ?? []) {
+        if (!(button instanceof St.Button)) continue;
+        let rec = state.systemRecords.get(button);
+        if (!rec) {
+          rec = {};
+          state.systemRecords.set(button, rec);
+          this._rememberPresentation(rec, button, ["x_expand", "y_expand", "x_align", "y_align"]);
+        }
+        button.add_style_class_name("originuicc-system-circle");
+        button.x_expand = button.y_expand = false;
+        button.x_align = button.y_align = Clutter.ActorAlign.CENTER;
+        const content = button._box;
+        if (content) {
+          this._rememberPresentation(rec, content, ["x_expand", "y_expand", "x_align", "y_align"]);
+          content.x_expand = content.y_expand = true;
+          content.x_align = content.y_align = Clutter.ActorAlign.FILL;
+          for (const child of content.get_children()) {
+            if (child instanceof St.Icon) {
+              this._rememberPresentation(rec, child, ["x_expand", "x_align", "y_align"]);
+              child.x_expand = true;
+              child.x_align = child.y_align = Clutter.ActorAlign.CENTER;
+            } else {
+              this._rememberPresentation(rec, child, ["visible"]);
+              child.hide();
+            }
+          }
+        }
+      }
+    }
+  }
+
+  _releaseEditorPointer(state) {
+    if (state.pointerGrab) {
+      state.pointerGrab.dismiss();
+      state.pointerGrab = null;
     }
   }
 
@@ -989,7 +1303,19 @@ export class QuickSettingsRemake {
       destroy();
   }
 
+  _completePendingRemovals(state) {
+    for (const [actor, rec] of [...state.actors, ...state.sliders]) {
+      if (!rec.removing) continue;
+      actor.remove_all_transitions();
+      actor.scale_x = actor.scale_y = 1;
+      actor.opacity = 255;
+      rec.removing = false;
+      this._setControlRemoved(state, actor, rec, true);
+    }
+  }
+
   _serializeLayout(state) {
+    this._completePendingRemovals(state);
     const visible = state.grid.get_children().filter(a => state.actors.has(a) || state.sliders.has(a));
     const removed = state.initialOrder.filter(a => (state.actors.get(a) ?? state.sliders.get(a))?.removed);
     return [...visible, ...removed].map(a => {
@@ -1015,17 +1341,21 @@ export class QuickSettingsRemake {
   }
 
   _fitsTileGrid(state, order = null, extraActor = null, extraSize = null) {
-    const cells = Array.from({length: 12}, () => Array(4).fill(false));
-    const actors = order ?? state.grid.get_children().filter(actor => state.actors.has(actor) && !state.actors.get(actor)?.removed);
+    const rowLimit = 8;
+    const cells = Array.from({length: rowLimit}, () => Array(4).fill(false));
+    const actors = order ?? state.grid.get_children().filter(actor => {
+      const rec = state.actors.get(actor) ?? state.sliders.get(actor);
+      return rec && !rec.removed;
+    });
     const entries = [...actors];
     if (extraActor && !entries.includes(extraActor)) entries.push(extraActor);
     for (const actor of entries) {
-      const rec = state.actors.get(actor);
+      const rec = state.actors.get(actor) ?? state.sliders.get(actor);
       if (!rec || (rec.removed && actor !== extraActor)) continue;
       const size = actor === extraActor && extraSize ? extraSize : rec.size;
-      const [width, height] = this._tileDimensions(size);
+      const [width, height] = state.sliders.has(actor) ? [4, 1] : this._tileDimensions(size);
       let placed = false;
-      for (let row = 0; row <= 12 - height && !placed; row++) {
+      for (let row = 0; row <= rowLimit - height && !placed; row++) {
         for (let column = 0; column <= 4 - width && !placed; column++) {
           let free = true;
           for (let y = row; y < row + height && free; y++)
@@ -1045,8 +1375,14 @@ export class QuickSettingsRemake {
   _showMaxControlsDialog(state) {
     if (state.limitHost) return;
     const panel = new St.BoxLayout({vertical: true, style_class: "originuicc-limit-dialog", reactive: true});
-    panel.add_child(new St.Label({text: "Maximum number of toggles reached", style_class: "originuicc-limit-title"}));
-    panel.add_child(new St.Label({text: "Remove a toggle or choose a smaller size to make room.", style_class: "originuicc-limit-message"}));
+    for (const [text, style_class] of [
+      ["Maximum number of toggles reached", "originuicc-limit-title"],
+      ["Remove a toggle or choose a smaller size to make room.", "originuicc-limit-message"],
+    ]) {
+      const label = new St.Label({text, style_class});
+      label.clutter_text.line_wrap = true;
+      panel.add_child(label);
+    }
     const okay = new St.Button({label: "Okay", style_class: "originuicc-limit-okay", can_focus: true});
     panel.add_child(okay);
     const host = new St.Widget({layout_manager: new Clutter.FixedLayout(), reactive: false, width: 1, height: 1});
@@ -1058,16 +1394,26 @@ export class QuickSettingsRemake {
     state.limitHost = host;
     state.limitPanel = panel;
     state.limitDialog = true;
-    const width = Math.min(420, global.stage.width - 48);
-    const height = 220;
+    const scale = St.ThemeContext.get_for_stage(global.stage).scale_factor;
+    const monitor = Main.layoutManager.findMonitorForActor(state.menu._boxPointer ?? state.menu.actor) ?? Main.layoutManager.primaryMonitor;
+    const area = Main.layoutManager.getWorkAreaForMonitor(monitor.index);
+    const width = Math.min(420 * scale, area.width - 48 * scale);
     const [menuX, menuY] = state.menu.actor.get_transformed_position();
-    panel.set_size(width, height);
-    panel.set_position((global.stage.width - width) / 2 - menuX, (global.stage.height - height) / 2 - menuY);
+    panel.width = width;
+    panel.ensure_style();
+    const height = panel.get_preferred_height(width)[1];
+    panel.set_position(area.x + (area.width - width) / 2 - menuX, area.y + (area.height - height) / 2 - menuY);
     panel.opacity = 0;
     panel.translation_y = 20;
     state.menu.actor.set_child_above_sibling(host, null);
     panel.ease({opacity: 255, translation_y: 0, duration: 180, mode: Clutter.AnimationMode.EASE_OUT_QUAD});
-    okay.connect("clicked", () => this._closeMaxControlsDialog(state));
+    okay.connect("clicked", () => {
+      if (state.limitClosing) return;
+      state.limitClosing = true;
+      okay.reactive = false;
+      panel.ease({opacity: 0, translation_y: 8, duration: 120, mode: Clutter.AnimationMode.EASE_IN_QUAD,
+        onComplete: () => this._closeMaxControlsDialog(state)});
+    });
   }
 
   _closeMaxControlsDialog(state) {
@@ -1075,6 +1421,7 @@ export class QuickSettingsRemake {
     state.limitHost = null;
     state.limitPanel = null;
     state.limitDialog = false;
+    state.limitClosing = false;
     if (!host) return;
     try { state.menu.actor.remove_child(host); host.destroy(); } catch (_) {}
   }
@@ -1085,7 +1432,7 @@ export class QuickSettingsRemake {
     const targets = new Set();
     const visit = widget => {
       const classes = widget?.get_style_class_name?.() ?? "";
-      if (/(^|\s)(quick-toggle-arrow-button|quick-toggle-menu-button|quick-toggle-arrow)(\s|$)/.test(classes)) {
+      if (/(^|\s)(quick-toggle-arrow-button|quick-toggle-menu-button|quick-toggle-arrow|quick-toggle-separator)(\s|$)/.test(classes)) {
         const parent = widget.get_parent?.();
         const parentClasses = parent?.get_style_class_name?.() ?? "";
         targets.add(/(^|\s)(quick-toggle-arrow-button|quick-toggle-menu-button)(\s|$)/.test(classes)
@@ -1099,77 +1446,87 @@ export class QuickSettingsRemake {
       if (!rec.arrowStates.has(target))
         rec.arrowStates.set(target, {visible: target.visible, reactive: target.reactive});
       const original = rec.arrowStates.get(target);
-      target.visible = visible ? original.visible : false;
+      const isMenuPart = target === actor._menuButton || target.has_style_class_name?.("quick-toggle-separator");
+      const menuVisible = isMenuPart ? actor.menuEnabled !== false : original.visible;
+      target.visible = visible && menuVisible;
       target.reactive = visible ? original.reactive : false;
     }
+    // Menu-button visibility is bound to separator visibility by Shell. Hide
+    // separators after changing that button, including in the pill size.
+    for (const target of targets)
+      if (target.has_style_class_name?.("quick-toggle-separator")) target.hide();
+  }
+
+  _rememberPresentation(rec, widget, properties) {
+    if (!widget) return;
+    rec.presentationStates ??= new Map();
+    const original = rec.presentationStates.get(widget) ?? {};
+    for (const property of properties)
+      if (!(property in original)) original[property] = widget[property];
+    rec.presentationStates.set(widget, original);
+  }
+
+  _toggleContents(actor) {
+    if (actor?._icon instanceof St.Icon) return actor;
+    return actor?._box?.get_children?.().find(child => child._icon instanceof St.Icon) ?? actor;
   }
 
   _setTileSize(state, actor, size) {
     size = this._normalizeTileSize(size);
-    const [colsRequested, rowsRequested] = this._tileDimensions(size);
-    const columns = Math.max(1, state.grid.layout_manager.nColumns ?? state.grid.layout_manager.n_columns ?? 4);
-    const cols = Math.min(colsRequested, columns);
-    const rows = Math.min(rowsRequested, 12);
     const rec = state.actors.get(actor);
-    if (rec) rec.size = size;
-    actor.remove_style_class_name("originuicc-size-1x1");
-    actor.remove_style_class_name("originuicc-size-2x1");
-    actor.remove_style_class_name("originuicc-size-2x2");
+    if (!rec) return;
+    rec.size = size;
+    for (const name of ["1x1", "2x1", "2x2"]) actor.remove_style_class_name(`originuicc-size-${name}`);
+    actor.add_style_class_name("originuicc-tile");
     actor.add_style_class_name(`originuicc-size-${size}`);
-    if (actor.get_parent?.() === state.grid) {
-      try { state.grid.layout_manager.child_set_property(state.grid, actor, "column-span", cols); } catch (_) {}
-      try { state.grid.layout_manager.child_set_property(state.grid, actor, "row-span", rows); } catch (_) {}
-    }
+    if (actor.get_parent?.() === state.grid)
+      state.grid.layout_manager.child_set_property(state.grid, actor, "column-span", this._tileDimensions(size)[0]);
     const compact = size === "1x1";
     const large = size === "2x2";
-    this._setCompactArrowVisibility(actor, rec, !compact);
-
-    const contentBox = actor?._box;
-    if (contentBox) {
-      rec.contentBoxState ??= {vertical: contentBox.vertical, xExpand: contentBox.x_expand, xAlign: contentBox.x_align};
-      contentBox.vertical = false;
-      contentBox.x_expand = true;
-      contentBox.x_align = Clutter.ActorAlign.FILL;
+    this._setCompactArrowVisibility(actor, rec, size === "2x1");
+    if (!rec.menuEnabledId && actor._menuButton) {
+      rec.menuEnabledId = actor.connect("notify::menu-enabled", () =>
+        this._setCompactArrowVisibility(actor, rec, rec.size === "2x1"));
     }
-    let mainIcon = actor?._icon ?? null;
-    const findMainIcon = widget => {
-      if (!widget || mainIcon) return;
-      if (widget instanceof St.Icon && !/(^|\s)quick-toggle-arrow(\s|$)/.test(widget.get_style_class_name?.() ?? "")) {
-        mainIcon = widget;
-        return;
-      }
-      for (const child of widget.get_children?.() ?? []) findMainIcon(child);
-    };
-    if (!mainIcon) findMainIcon(actor?._box ?? actor);
-    if (mainIcon) {
-      rec.iconSizes ??= new Map();
-      if (!rec.iconSizes.has(mainIcon)) rec.iconSizes.set(mainIcon, {size: mainIcon.icon_size, xAlign: mainIcon.x_align, yAlign: mainIcon.y_align});
-      mainIcon.icon_size = 18;
-      mainIcon.x_align = compact ? Clutter.ActorAlign.CENTER : Clutter.ActorAlign.START;
-      mainIcon.y_align = Clutter.ActorAlign.CENTER;
+    const contents = this._toggleContents(actor);
+    const box = contents._box;
+    for (const widget of [actor, contents, actor._box, box]) {
+      if (!widget) continue;
+      this._rememberPresentation(rec, widget, ["x_expand", "y_expand", "x_align", "y_align"]);
+      widget.x_expand = true;
+      widget.y_expand = true;
+      widget.x_align = Clutter.ActorAlign.FILL;
+      widget.y_align = Clutter.ActorAlign.FILL;
     }
-
-    const titleBox = actor?._box?.get_children?.()[1];
+    if (box) {
+      this._rememberPresentation(rec, box, ["vertical"]);
+      box.vertical = large;
+    }
+    const icon = contents._icon;
+    if (icon) {
+      this._rememberPresentation(rec, icon, ["icon_size", "x_expand", "y_expand", "x_align", "y_align"]);
+      icon.icon_size = 20;
+      icon.x_expand = compact || large;
+      icon.y_expand = large;
+      icon.x_align = compact ? Clutter.ActorAlign.CENTER : Clutter.ActorAlign.START;
+      icon.y_align = large ? Clutter.ActorAlign.START : Clutter.ActorAlign.CENTER;
+    }
+    const titleBox = box?.get_children?.().find(child => child !== icon && child instanceof St.BoxLayout);
     if (titleBox) {
-      rec.titleBoxState ??= {visible: titleBox.visible, xAlign: titleBox.x_align, yAlign: titleBox.y_align, xExpand: titleBox.x_expand};
-      titleBox.visible = compact ? false : rec.titleBoxState.visible;
-      titleBox.x_align = compact ? Clutter.ActorAlign.CENTER : (large ? Clutter.ActorAlign.END : Clutter.ActorAlign.START);
+      this._rememberPresentation(rec, titleBox, ["visible", "x_expand", "y_expand", "x_align", "y_align"]);
+      titleBox.visible = compact ? false : rec.presentationStates.get(titleBox).visible;
+      titleBox.x_expand = true;
+      titleBox.y_expand = false;
+      titleBox.x_align = Clutter.ActorAlign.FILL;
       titleBox.y_align = large ? Clutter.ActorAlign.END : Clutter.ActorAlign.CENTER;
-      titleBox.x_expand = large;
-    }
-    const setLabelVisibility = widget => {
-      if (widget instanceof St.Label) {
-        rec.labelStates ??= new Map();
-        if (!rec.labelStates.has(widget)) rec.labelStates.set(widget, {visible: widget.visible, xAlign: widget.x_align});
-        const original = rec.labelStates.get(widget);
-        widget.visible = compact ? false : original.visible;
-        widget.x_align = large ? Clutter.ActorAlign.END : Clutter.ActorAlign.START;
+      for (const label of titleBox.get_children()) {
+        this._rememberPresentation(rec, label, ["x_align"]);
+        label.x_align = large ? Clutter.ActorAlign.END : Clutter.ActorAlign.START;
       }
-      for (const child of widget?.get_children?.() ?? []) setLabelVisibility(child);
-    };
-    setLabelVisibility(actor);
-    if (rec?.handle) this._setResizeGripVisible(rec.handle, state.editing && !rec.removed);
-    if (rec?.removeButton) this._setResizeGripVisible(rec.removeButton, state.editing && !rec.removed);
+    }
+    state.grid.queue_relayout();
+    if (rec.handle) this._setResizeGripVisible(rec.handle, state.editing && !rec.removed);
+    if (rec.removeButton) this._setResizeGripVisible(rec.removeButton, state.editing && !rec.removed);
   }
 
   _setSliderSize(state, actor, size = "1x4") {
@@ -1185,7 +1542,6 @@ export class QuickSettingsRemake {
     actor.add_style_class_name(`originuicc-slider-size-${size}`);
     if (actor.get_parent?.() === state.grid) {
       try { state.grid.layout_manager.child_set_property(state.grid, actor, "column-span", Math.min(span, columns)); } catch (_) {}
-      try { state.grid.layout_manager.child_set_property(state.grid, actor, "row-span", 1); } catch (_) {}
     }
     if (rec?.handle) this._setResizeGripVisible(rec.handle, state.editing && !rec.removed);
     if (rec?.removeButton) this._setResizeGripVisible(rec.removeButton, state.editing && !rec.removed);
@@ -1201,12 +1557,20 @@ export class QuickSettingsRemake {
     state.toolbar.show();
     for (const [actor, rec] of [...state.actors, ...state.sliders]) {
       if (rec.removed) continue;
+      this._stopAnimation(actor, true);
+      actor.remove_all_transitions();
+      actor.translation_x = actor.translation_y = 0;
+      actor.scale_x = actor.scale_y = 1;
       this._positionResizeGrip(state, actor, rec.handle, rec.removeButton);
       if (rec.handle) this._setResizeGripVisible(rec.handle, true);
       this._setResizeGripVisible(rec.removeButton, true);
     }
     try { state.menu.actor.set_child_above_sibling(state.gripLayer, null); } catch (_) {}
-    state.stageId = global.stage.connect("captured-event", (_stage, event) => this._editorDragEvent(state, event));
+    state.captureId = state.grid.connect("captured-event", (_grid, event) => this._editorDragEvent(state, event));
+    state.dragEventActor = new St.Widget({reactive: true, width: 1, height: 1});
+    state.menu.actor.add_child(state.dragEventActor);
+    state.dragEventId = state.dragEventActor.connect("event", (_actor, event) => this._editorDragEvent(state, event));
+    this._syncPanelHeight(state);
   }
 
   _pointInside(actor, stageX, stageY) {
@@ -1219,53 +1583,68 @@ export class QuickSettingsRemake {
     }
   }
 
-  _animateGridReorder(state, preferredOrder, drag = null) {
-    if (!this._fitsTileGrid(state, preferredOrder)) {
-      this._showMaxControlsDialog(state);
-      return false;
+  _cancelGridReflow(state) {
+    if (state.handlesLater) {
+      global.compositor.get_laters().remove(state.handlesLater);
+      state.handlesLater = 0;
     }
+    if (state.reflowLater) {
+      global.compositor.get_laters().remove(state.reflowLater);
+      state.reflowLater = 0;
+    }
+  }
+
+  _animateGridReorder(state, preferredOrder, drag = null, change = null) {
+    if (!this._fitsTileGrid(state, preferredOrder)) return false;
+    this._cancelGridReflow(state);
     const before = new Map();
     for (const [actor, rec] of [...state.actors, ...state.sliders]) {
-      if (rec.removed || actor.get_parent?.() !== state.grid) continue;
+      if (rec.removed || rec.removing || actor.get_parent?.() !== state.grid) continue;
+      this._stopAnimation(actor, false);
       if (actor !== drag?.actor) {
         const [x, y] = actor.get_transformed_position();
-        before.set(actor, {x, y});
+        const [width, height] = actor.get_transformed_size();
+        before.set(actor, {x, y, width, height});
       }
       actor.remove_all_transitions();
+      actor.set_pivot_point(0, 0);
       actor.translation_x = 0;
       actor.translation_y = 0;
+      actor.scale_x = actor.scale_y = 1;
       for (const button of [rec.handle, rec.removeButton]) {
         if (!button || button.is_destroyed?.()) continue;
         button.remove_all_transitions();
-        button.translation_x = 0;
-        button.translation_y = 0;
+        button.translation_x = button.translation_y = 0;
+        button.scale_x = button.scale_y = 1;
+        if (button.visible) button.opacity = 255;
       }
     }
+    change?.();
     this._reorderGrid(state, preferredOrder);
-    const serial = state.reorderSerial = (state.reorderSerial ?? 0) + 1;
     if (drag) drag.reorderPending = true;
-    GLib.timeout_add(GLib.PRIORITY_DEFAULT, 16, () => {
-      if (serial !== state.reorderSerial || !state.editing) return GLib.SOURCE_REMOVE;
-      if (drag) drag.reorderPending = false;
-      for (const [actor, old] of before) {
-        if (actor.is_destroyed?.() || actor.get_parent?.() !== state.grid) continue;
+    state.reflowLater = global.compositor.get_laters().add(Meta.LaterType.BEFORE_REDRAW, () => {
+      state.reflowLater = 0;
+      if (state.destroyed || !state.editing) return GLib.SOURCE_REMOVE;
+      state.slotRects = new Map();
+      for (const [actor, rec] of [...state.actors, ...state.sliders]) {
+        if (rec.removed || actor.get_parent?.() !== state.grid) continue;
         const [x, y] = actor.get_transformed_position();
-        const dx = old.x - x;
-        const dy = old.y - y;
-        const rec = state.actors.get(actor) ?? state.sliders.get(actor);
-        this._positionResizeGrip(state, actor, rec?.handle, rec?.removeButton);
-        if (Math.abs(dx) < 1 && Math.abs(dy) < 1) continue;
-        actor.translation_x = dx;
-        actor.translation_y = dy;
-        actor.ease({translation_x: 0, translation_y: 0, duration: 200, mode: Clutter.AnimationMode.EASE_OUT_QUAD});
-        for (const button of [rec?.handle, rec?.removeButton]) {
-          if (!button || button.is_destroyed?.() || !button.visible) continue;
-          button.translation_x = dx;
-          button.translation_y = dy;
-          button.ease({translation_x: 0, translation_y: 0, duration: 200, mode: Clutter.AnimationMode.EASE_OUT_QUAD});
-        }
+        const [width, height] = actor.get_transformed_size();
+        state.slotRects.set(actor, {x, y, width, height});
+        const old = before.get(actor);
+        this._positionResizeGrip(state, actor, rec.handle, rec.removeButton);
+        if (!old || actor === drag?.actor || width <= 0 || height <= 0) continue;
+        actor.translation_x = old.x - x;
+        actor.translation_y = old.y - y;
+        actor.scale_x = old.width / width;
+        actor.scale_y = old.height / height;
+        this._positionResizeGrip(state, actor, rec.handle, rec.removeButton);
+        actor.ease({translation_x: 0, translation_y: 0, scale_x: 1, scale_y: 1,
+          duration: 220, mode: Clutter.AnimationMode.EASE_OUT_QUAD,
+          onComplete: () => { if (!actor.is_destroyed?.()) actor.set_pivot_point(0.5, 0.5); }});
       }
-      if (drag?.actor && drag.actor.get_parent?.() === state.grid) {
+      if (drag) {
+        drag.reorderPending = false;
         this._positionDraggedActor(state, drag, drag.currentX, drag.currentY);
         if (drag.released) this._settleDraggedActor(state, drag);
       }
@@ -1277,92 +1656,93 @@ export class QuickSettingsRemake {
   _positionDraggedActor(state, drag, stageX, stageY) {
     const actor = drag.actor;
     if (!actor || actor.is_destroyed?.() || actor.get_parent?.() !== state.grid) return;
-    actor.remove_all_transitions();
     actor.translation_x = 0;
     actor.translation_y = 0;
     const [baseX, baseY] = actor.get_transformed_position();
     actor.translation_x = stageX - drag.offsetX - baseX;
     actor.translation_y = stageY - drag.offsetY - baseY;
-    const rec = drag.rec;
-    this._positionResizeGrip(state, actor, rec?.handle, rec?.removeButton);
+    this._positionResizeGrip(state, actor, drag.rec.handle, drag.rec.removeButton);
   }
 
   _findDragTarget(state, drag, stageX, stageY) {
-    const candidates = [...state.actors.keys(), ...state.sliders.keys()].filter(actor =>
-      actor !== drag.actor && !state.actors.get(actor)?.removed && !state.sliders.get(actor)?.removed && actor.get_parent?.() === state.grid);
-    const hit = candidates.find(actor => this._pointInside(actor, stageX, stageY));
-    if (hit) return hit;
-    return candidates.reduce((nearest, actor) => {
-      const [x, y] = actor.get_transformed_position();
-      const [width, height] = actor.get_transformed_size();
-      const distance = Math.hypot(stageX - (x + width / 2), stageY - (y + height / 2));
-      return !nearest || distance < nearest.distance ? {actor, distance} : nearest;
-    }, null)?.actor ?? null;
+    if (drag.reorderPending) return null;
+    let nearest = null;
+    for (const [actor, rect] of state.slotRects ?? []) {
+      if (actor === drag.actor || actor.get_parent?.() !== state.grid) continue;
+      const distance = Math.hypot(stageX - (rect.x + rect.width / 2), stageY - (rect.y + rect.height / 2));
+      if (!nearest || distance < nearest.distance) nearest = {actor, distance};
+    }
+    return nearest?.actor ?? null;
   }
 
   _reorderDraggedActor(state, drag, stageX, stageY) {
     const target = this._findDragTarget(state, drag, stageX, stageY);
-    if (!target || target === drag.hoverTarget) return;
-    const order = state.grid.get_children().filter(actor => {
+    if (!target) return;
+    const rect = state.slotRects.get(target);
+    const after = stageY < rect.y ? false : stageY > rect.y + rect.height ? true
+      : (state.grid.text_direction === Clutter.TextDirection.RTL ? stageX < rect.x + rect.width / 2 : stageX > rect.x + rect.width / 2);
+    if (target === drag.hoverTarget && after === drag.hoverAfter) return;
+    const current = state.grid.get_children().filter(actor => {
       const rec = state.actors.get(actor) ?? state.sliders.get(actor);
       return rec && !rec.removed;
     });
-    const from = order.indexOf(drag.actor);
+    const order = current.filter(actor => actor !== drag.actor);
     const targetIndex = order.indexOf(target);
-    if (from < 0 || targetIndex < 0) return;
-    const [x, y] = target.get_transformed_position();
-    const [width, height] = target.get_transformed_size();
-    const after = Math.abs(stageX - (x + width / 2)) > Math.abs(stageY - (y + height / 2))
-      ? stageX > x + width / 2
-      : stageY > y + height / 2;
-    order.splice(from, 1);
-    let insertAt = targetIndex + (after ? 1 : 0) - (from < targetIndex ? 1 : 0);
-    insertAt = Math.max(0, Math.min(order.length, insertAt));
-    order.splice(insertAt, 0, drag.actor);
-    const currentOrder = state.grid.get_children().filter(child => {
-      const rec = state.actors.get(child) ?? state.sliders.get(child);
-      return rec && !rec.removed;
-    });
-    if (order.every((actor, index) => actor === currentOrder[index])) return;
-    if (this._animateGridReorder(state, order, drag)) drag.hoverTarget = target;
+    if (targetIndex < 0) return;
+    order.splice(targetIndex + (after ? 1 : 0), 0, drag.actor);
+    drag.hoverTarget = target;
+    drag.hoverAfter = after;
+    if (!order.every((actor, index) => actor === current[index]))
+      this._animateGridReorder(state, order, drag);
   }
 
   _settleDraggedActor(state, drag) {
     const actor = drag.actor;
     if (!actor || actor.is_destroyed?.() || actor.get_parent?.() !== state.grid) return;
-    const dx = actor.translation_x;
-    const dy = actor.translation_y;
-    actor.remove_all_transitions();
-    actor.translation_x = 0;
-    actor.translation_y = 0;
-    this._positionResizeGrip(state, actor, drag.rec?.handle, drag.rec?.removeButton);
-    for (const button of [drag.rec?.handle, drag.rec?.removeButton]) {
-      if (!button || button.is_destroyed?.() || !button.visible) continue;
-      button.remove_all_transitions();
-      button.translation_x = dx;
-      button.translation_y = dy;
-      button.ease({translation_x: 0, translation_y: 0, duration: 160, mode: Clutter.AnimationMode.EASE_OUT_QUAD});
-    }
-    actor.translation_x = dx;
-    actor.translation_y = dy;
-    actor.ease({translation_x: 0, translation_y: 0, duration: 160, mode: Clutter.AnimationMode.EASE_OUT_QUAD});
+    this._positionResizeGrip(state, actor, drag.rec.handle, drag.rec.removeButton);
+    actor.ease({translation_x: 0, translation_y: 0, duration: 180, mode: Clutter.AnimationMode.EASE_OUT_QUAD,
+      onComplete: () => { if (!actor.is_destroyed?.()) actor.set_pivot_point(0.5, 0.5); }});
   }
 
   _editorDragEvent(state, event) {
-    if (!state.editing || state.galleryDialog || state.confirmDialog || state.limitDialog)
+    if (!state.editing || state.restoring || state.galleryDialog || state.confirmDialog || state.limitDialog)
       return Clutter.EVENT_PROPAGATE;
     const type = event.type();
+    if (type === Clutter.EventType.KEY_PRESS && event.get_key_symbol() === Clutter.KEY_Escape && state.drag) {
+      const drag = state.drag;
+      state.drag = null;
+      drag.released = true;
+      this._releaseEditorPointer(state);
+      if (!drag.reorderPending) this._settleDraggedActor(state, drag);
+      return Clutter.EVENT_STOP;
+    }
+    if (type === Clutter.EventType.SCROLL && state.drag && state.panelViewport)
+      return state.panelViewport.event(event, false);
     const [sx, sy] = event.get_coords?.() ?? [0, 0];
-    if (type === Clutter.EventType.BUTTON_PRESS && !state.drag) {
+    if (type === Clutter.EventType.BUTTON_PRESS && state.panelViewport && !this._pointInside(state.panelViewport, sx, sy))
+      return Clutter.EVENT_PROPAGATE;
+    if (type === Clutter.EventType.BUTTON_PRESS && event.get_button() === 1 && !state.drag) {
       const controls = [...state.actors, ...state.sliders];
+      if (controls.some(([, rec]) => this._pointInside(rec.handle, sx, sy) || this._pointInside(rec.removeButton, sx, sy)))
+        return Clutter.EVENT_PROPAGATE;
       for (const [candidate, rec] of controls) {
         if (rec.removed || candidate.get_parent?.() !== state.grid || !this._pointInside(candidate, sx, sy)) continue;
         // Keep resize/remove buttons clickable instead of starting a tile drag.
         if (this._pointInside(rec.handle, sx, sy) || this._pointInside(rec.removeButton, sx, sy))
           return Clutter.EVENT_PROPAGATE;
+        this._stopAnimation(candidate, true);
+        candidate.remove_all_transitions();
+        candidate.set_pivot_point(0, 0);
+        candidate.scale_x = candidate.scale_y = 1;
+        state.slotRects = new Map(controls.filter(([actor, rec]) => !rec.removed && actor.get_parent?.() === state.grid).map(([actor]) => {
+          const [x, y] = actor.get_transformed_position();
+          const [width, height] = actor.get_transformed_size();
+          return [actor, {x: x - actor.translation_x, y: y - actor.translation_y, width: width / actor.scale_x, height: height / actor.scale_y}];
+        }));
         const [actorX, actorY] = candidate.get_transformed_position();
         state.drag = {actor: candidate, rec, sx, sy, moved: false, offsetX: sx - actorX, offsetY: sy - actorY, currentX: sx, currentY: sy, hoverTarget: null, reorderPending: false, released: false};
-        return Clutter.EVENT_PROPAGATE;
+        state.pointerGrab = global.stage.grab(state.dragEventActor);
+        return Clutter.EVENT_STOP;
       }
       return Clutter.EVENT_PROPAGATE;
     }
@@ -1371,7 +1751,7 @@ export class QuickSettingsRemake {
     const {actor} = drag;
     if (type === Clutter.EventType.MOTION) {
       const dx = sx - drag.sx, dy = sy - drag.sy;
-      if (Math.hypot(dx, dy) > 10) {
+      if (drag.moved || Math.hypot(dx, dy) > 8) {
         drag.moved = true;
         drag.currentX = sx;
         drag.currentY = sy;
@@ -1381,8 +1761,9 @@ export class QuickSettingsRemake {
       }
       return Clutter.EVENT_PROPAGATE;
     }
-    if (type !== Clutter.EventType.BUTTON_RELEASE)
+    if (type !== Clutter.EventType.BUTTON_RELEASE || event.get_button() !== 1)
       return Clutter.EVENT_PROPAGATE;
+    this._releaseEditorPointer(state);
     if (drag.moved) {
       drag.currentX = sx;
       drag.currentY = sy;
@@ -1395,42 +1776,101 @@ export class QuickSettingsRemake {
       state.drag = null;
       actor.translation_x = 0;
       actor.translation_y = 0;
-      return Clutter.EVENT_PROPAGATE;
+      actor.set_pivot_point(0.5, 0.5);
     }
     return Clutter.EVENT_STOP;
   }
 
+  _resetEditorActors(state) {
+    this._cancelGridReflow(state);
+    this._releaseEditorPointer(state);
+    state.drag = null;
+    for (const [actor, rec] of [...state.actors, ...state.sliders]) {
+      this._stopAnimation(actor, false);
+      actor.remove_all_transitions();
+      actor.opacity = 255;
+      actor.translation_x = actor.translation_y = 0;
+      actor.scale_x = actor.scale_y = 1;
+      actor.set_pivot_point(0.5, 0.5);
+      rec.removing = false;
+      for (const button of [rec.handle, rec.removeButton]) {
+        if (!button) continue;
+        button.remove_all_transitions();
+        button.translation_x = button.translation_y = 0;
+        button.scale_x = button.scale_y = 1;
+      }
+    }
+  }
+
+  _restoreEditorSnapshot(state) {
+    state.restoring = true;
+    this._resetEditorActors(state);
+    state.menu._activeMenu?.close(false);
+    // Stop edit hit testing and handle positioning before any actors change
+    // parent. Allocation is deferred until the complete snapshot is installed.
+    state.editing = false;
+    this._setRemovedControls(state, state.savedRemoved ?? []);
+    this._applySerializedLayout(state, state.saved ?? []);
+    state.savedApplied = true;
+    state.restoring = false;
+  }
+
   _finishEdit(state) {
-    if (state.confirmPanel) return;
-    const panel = new St.BoxLayout({style_class: "originuicc-editor-confirm"});
-    panel.add_child(new St.Label({text: "Save your changes?", x_expand: true}));
-    const discard = new St.Button({label: "Discard", style_class: "originuicc-confirm-discard"});
-    const save = new St.Button({label: "Save", style_class: "originuicc-confirm-save"});
-    panel.add_child(discard);
-    panel.add_child(save);
+    if (state.confirmPanel || state.restoring) return;
+    this._completePendingRemovals(state);
+    this._releaseEditorPointer(state);
+    if (state.drag) {
+      state.drag.released = true;
+      if (!state.drag.reorderPending) this._settleDraggedActor(state, state.drag);
+    }
+    state.drag = null;
+    const panel = new St.BoxLayout({vertical: true, style_class: "originuicc-editor-confirm", x_expand: true});
+    panel.add_child(new St.Label({text: "Save your changes?", x_expand: true,
+      x_align: Clutter.ActorAlign.CENTER, style_class: "originuicc-confirm-title"}));
+    const buttons = new St.BoxLayout({style_class: "originuicc-confirm-actions", x_expand: true});
+    buttons.layout_manager.homogeneous = true;
+    const discard = new St.Button({label: "Discard", style_class: "originuicc-confirm-discard", x_expand: true, can_focus: true});
+    const save = new St.Button({label: "Save", style_class: "originuicc-confirm-save", x_expand: true, can_focus: true});
+    buttons.add_child(discard);
+    buttons.add_child(save);
+    panel.add_child(buttons);
+    state.actions.hide();
+    state.doneButton.hide();
     state.toolbar.add_child(panel);
     state.confirmPanel = panel;
     state.confirmDialog = true;
-    discard.connect("clicked", () => {
-      this._applySerializedLayout(state, state.saved ?? []);
-      this._setRemovedControls(state, state.savedRemoved ?? []);
-      state.confirmDialog = null;
-      GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
-        this._closeEditor(state);
-        return GLib.SOURCE_REMOVE;
-      });
-    });
-    save.connect("clicked", () => {
-      this._savedLayout = this._serializeLayout(state);
-      this._savedRemoved = [...state.removed];
-      this._writeLayout(this._savedLayout, this._savedRemoved);
-      state.savedApplied = true;
-      state.confirmDialog = null;
-      GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
-        this._closeEditor(state);
-        return GLib.SOURCE_REMOVE;
-      });
-    });
+    panel.opacity = 0;
+    panel.translation_y = 8;
+    panel.ease({opacity: 255, translation_y: 0, duration: 180, mode: Clutter.AnimationMode.EASE_OUT_QUAD});
+    let closing = false;
+    const finish = keepChanges => {
+      if (closing) return;
+      closing = true;
+      state.exitAction = keepChanges;
+      discard.reactive = save.reactive = false;
+      panel.ease({opacity: 0, translation_y: 6, duration: 120, mode: Clutter.AnimationMode.EASE_IN_QUAD,
+        onComplete: () => {
+          // Never change the grid or destroy a button from its click emission.
+          state.finishIdle = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+            state.finishIdle = 0;
+            if (state.destroyed || !state.editing) return GLib.SOURCE_REMOVE;
+            if (keepChanges) {
+              this._resetEditorActors(state);
+              this._savedLayout = this._serializeLayout(state);
+              this._savedRemoved = [...state.removed];
+              this._writeLayout(this._savedLayout, this._savedRemoved);
+              state.savedApplied = true;
+            } else {
+              this._restoreEditorSnapshot(state);
+            }
+            this._closeEditor(state);
+            return GLib.SOURCE_REMOVE;
+          });
+        }});
+    };
+    discard.connect("clicked", () => finish(false));
+    save.connect("clicked", () => finish(true));
+    this._syncPanelHeight(state);
   }
 
   _applySerializedLayout(state, layout) {
@@ -1464,6 +1904,11 @@ export class QuickSettingsRemake {
     const removed = new Set(ids);
     state.removed = removed;
     for (const [actor, rec] of [...state.actors, ...state.sliders]) {
+      actor.remove_all_transitions();
+      actor.opacity = 255;
+      actor.scale_x = actor.scale_y = 1;
+      actor.translation_x = actor.translation_y = 0;
+      rec.removing = false;
       const shouldRemove = removed.has(rec.id);
       rec.removed = shouldRemove;
       if (shouldRemove) {
@@ -1485,29 +1930,75 @@ export class QuickSettingsRemake {
   }
 
   _closeEditor(state) {
+    if (state.finishIdle) { GLib.source_remove(state.finishIdle); state.finishIdle = 0; }
+    state.exitAction = null;
+    this._releaseEditorPointer(state);
     state.editing = false;
+    this._cancelGridReflow(state);
+    for (const [actor, rec] of [...state.actors, ...state.sliders]) {
+      if (rec.removing) {
+        rec.removing = false;
+        this._setControlRemoved(state, actor, rec, true);
+      }
+      this._stopAnimation(actor, false);
+      actor.remove_all_transitions();
+      actor.opacity = 255;
+      actor.translation_x = actor.translation_y = 0;
+      actor.scale_x = actor.scale_y = 1;
+      actor.set_pivot_point(0.5, 0.5);
+      for (const button of [rec.handle, rec.removeButton]) {
+        if (!button) continue;
+        button.translation_x = button.translation_y = 0;
+      }
+    }
     state.drag = null;
     state.grid.remove_style_class_name("originuicc-editing");
     if (state.confirmPanel) {
+      state.confirmPanel.remove_all_transitions();
       try { state.toolbar.remove_child(state.confirmPanel); state.confirmPanel.destroy(); } catch (_) {}
     }
     state.confirmPanel = null;
     state.confirmDialog = null;
-    if (state.stageId) { global.stage.disconnect(state.stageId); state.stageId = 0; }
+    if (state.captureId) { state.grid.disconnect(state.captureId); state.captureId = 0; }
+    if (state.dragEventActor) {
+      state.dragEventActor.destroy();
+      state.dragEventActor = null;
+    }
     this._closeControlGallery(state);
     this._closeMaxControlsDialog(state);
     for (const [, rec] of [...state.actors, ...state.sliders]) {
       if (rec.handle) this._setResizeGripVisible(rec.handle, false);
       if (rec.removeButton) this._setResizeGripVisible(rec.removeButton, false);
     }
+    state.actions.show();
+    state.doneButton.show();
     state.button.show();
     state.toolbar.hide();
+    this._syncPanelHeight(state);
   }
 
   _cleanupEditor(state) {
     this._closeAssistant(state);
     this._closeControlGallery(state);
     if (state.editing) this._closeEditor(state);
+    state.destroyed = true;
+    state.menu.box.remove_style_class_name("originuicc-control-centre");
+    if (state.fitLater) { global.compositor.get_laters().remove(state.fitLater); state.fitLater = 0; }
+    for (const [actor, id] of state.viewportSignals ?? []) {
+      try { actor.disconnect(id); } catch (_) {}
+    }
+    if (state.panelViewport) {
+      const viewport = state.panelViewport;
+      state.panelViewport = null;
+      state.menu._boxPointer.bin.set_child(null);
+      viewport.set_child(null);
+      state.menu._boxPointer.bin.set_child(state.menu.box);
+      viewport.destroy();
+    }
+    if (state.finishIdle) { GLib.source_remove(state.finishIdle); state.finishIdle = 0; }
+    this._releaseEditorPointer(state);
+    this._cancelGridReflow(state);
+    state.grid.layout_manager = state.originalLayout;
     for (const [actor, rec] of [...state.actors, ...state.sliders]) {
       actor.remove_all_transitions();
       actor.scale_x = 1;
@@ -1518,41 +2009,41 @@ export class QuickSettingsRemake {
       actor.show();
       rec.removed = false;
       if (state.actors.has(actor)) this._setTileSize(state, actor, "2x1");
-      for (const [icon, original] of rec.iconSizes ?? []) {
-        if (icon.is_destroyed?.()) continue;
-        icon.icon_size = original.size;
-        icon.x_align = original.xAlign;
-        icon.y_align = original.yAlign;
+      if (rec.menuEnabledId) actor.disconnect(rec.menuEnabledId);
+      for (const [widget, original] of rec.arrowStates ?? []) {
+        if (widget.is_destroyed?.()) continue;
+        widget.visible = original.visible;
+        widget.reactive = original.reactive;
       }
-      if (actor._box && rec.contentBoxState) {
-        actor._box.vertical = rec.contentBoxState.vertical;
-        actor._box.x_expand = rec.contentBoxState.xExpand;
-        actor._box.x_align = rec.contentBoxState.xAlign;
+      for (const [widget, properties] of rec.presentationStates ?? []) {
+        if (widget.is_destroyed?.()) continue;
+        for (const [key, value] of Object.entries(properties)) widget[key] = value;
       }
-      const titleBox = actor._box?.get_children?.()[1];
-      if (titleBox && rec.titleBoxState) {
-        titleBox.visible = rec.titleBoxState.visible;
-        titleBox.x_align = rec.titleBoxState.xAlign;
-        titleBox.y_align = rec.titleBoxState.yAlign;
-        titleBox.x_expand = rec.titleBoxState.xExpand;
-      }
-      for (const [label, original] of rec.labelStates ?? []) {
-        if (label.is_destroyed?.()) continue;
-        label.visible = original.visible;
-        label.x_align = original.xAlign;
-      }
+      actor.remove_style_class_name("originuicc-tile");
+      actor.set_pivot_point(0.5, 0.5);
+      actor.translation_x = actor.translation_y = 0;
       if (rec.allocId) { try { actor.disconnect(rec.allocId); } catch (_) {} }
+      for (const id of rec.transformIds ?? []) {
+        try { actor.disconnect(id); } catch (_) {}
+      }
       if (rec.eventId) { try { actor.disconnect(rec.eventId); } catch (_) {} }
+      for (const [widget, id] of rec.pressIds ?? []) {
+        try { widget.disconnect(id); } catch (_) {}
+      }
       if (rec.handle && !rec.handle.is_destroyed?.()) rec.handle.destroy();
       if (rec.removeButton && !rec.removeButton.is_destroyed?.()) rec.removeButton.destroy();
       actor.remove_style_class_name("originuicc-size-1x1"); actor.remove_style_class_name("originuicc-size-2x1"); actor.remove_style_class_name("originuicc-size-2x2");
       actor.remove_style_class_name("originuicc-slider-size-1x2"); actor.remove_style_class_name("originuicc-slider-size-1x4");
       try { state.grid.layout_manager.child_set_property(state.grid, actor, "column-span", rec.originalSpan); } catch (_) {}
-      try { state.grid.layout_manager.child_set_property(state.grid, actor, "row-span", rec.originalRowSpan); } catch (_) {}
     }
+    for (const [widget, rec] of state.systemRecords ?? []) {
+      widget.remove_style_class_name("originuicc-system-circle");
+      for (const [actor, properties] of rec.presentationStates ?? [])
+        if (!actor.is_destroyed?.()) for (const [key, value] of Object.entries(properties)) actor[key] = value;
+    }
+    for (const row of state.fixedActors ?? []) row.remove_style_class_name("originuicc-system-row");
     for (const [actor, span] of state.fixedSpans) {
       try { state.grid.layout_manager.child_set_property(state.grid, actor, "column-span", span); } catch (_) {}
-      try { state.grid.layout_manager.child_set_property(state.grid, actor, "row-span", state.fixedRowSpans.get(actor) ?? 1); } catch (_) {}
     }
     const originalOrder = [...state.originalPositions].filter(([actor]) => !actor.is_destroyed?.() && actor.get_parent?.() === state.grid).sort((a, b) => a[1] - b[1]).map(([actor]) => actor);
     originalOrder.forEach((actor, index) => { try { state.grid.set_child_at_index(actor, index); } catch (_) {} });
@@ -1626,6 +2117,7 @@ export class QuickSettingsRemake {
       const hoverScale = 1.035;
       hover.signals.push(
         actor.connect("enter-event", () => {
+          if (this._editorMenus.get(menu)?.editing) return Clutter.EVENT_PROPAGATE;
           lastX = null;
           lastY = null;
           fadeGlow(1);
@@ -1640,6 +2132,7 @@ export class QuickSettingsRemake {
       );
       hover.signals.push(
         actor.connect("motion-event", (_actor, event) => {
+          if (this._editorMenus.get(menu)?.editing) return Clutter.EVENT_PROPAGATE;
           const [stageX, stageY] = event.get_coords();
           const [success, localX, localY] = actor.transform_stage_point(
             stageX,
@@ -1675,7 +2168,7 @@ export class QuickSettingsRemake {
       );
       hover.signals.push(
         actor.connect("button-press-event", (_actor, event) => {
-          if (event.get_button() !== 1) return Clutter.EVENT_PROPAGATE;
+          if (event.get_button() !== 1 || this._editorMenus.get(menu)?.editing) return Clutter.EVENT_PROPAGATE;
           actor.ease({
             scale_x: 0.97,
             scale_y: 0.97,
@@ -1687,7 +2180,7 @@ export class QuickSettingsRemake {
       );
       hover.signals.push(
         actor.connect("button-release-event", (_actor, event) => {
-          if (event.get_button() !== 1) return Clutter.EVENT_PROPAGATE;
+          if (event.get_button() !== 1 || this._editorMenus.get(menu)?.editing) return Clutter.EVENT_PROPAGATE;
           actor.ease({
             scale_x: hoverScale,
             scale_y: hoverScale,
@@ -1700,6 +2193,7 @@ export class QuickSettingsRemake {
       hover.signals.push(
         actor.connect("leave-event", () => {
           fadeGlow(0);
+          if (this._editorMenus.get(menu)?.editing) return Clutter.EVENT_PROPAGATE;
           lastX = null;
           lastY = null;
           actor.ease({
@@ -1722,7 +2216,7 @@ export class QuickSettingsRemake {
 
   _syncColorScheme(menu) {
     const schemeClass = this._getColorSchemeClass();
-    const actors = [menu?.box, ...this._getQuickToggleMenuBoxes(menu)];
+    const actors = [menu?.box, this._editorMenus.get(menu)?.galleryList, ...this._getQuickToggleMenuBoxes(menu)];
 
     menu?._boxPointer?.add_style_class_name(
       "originuicc-transparent-boxpointer",
@@ -1743,7 +2237,7 @@ export class QuickSettingsRemake {
         "originuicc-transparent-boxpointer",
       );
 
-      const actors = [menu?.box, ...this._getQuickToggleMenuBoxes(menu)];
+      const actors = [menu?.box, this._editorMenus.get(menu)?.galleryList, ...this._getQuickToggleMenuBoxes(menu)];
 
       for (const actor of actors) {
         if (!actor) continue;
